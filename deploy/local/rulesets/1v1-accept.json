@@ -1,0 +1,13 @@
+{
+  "name": "1v1-accept",
+  "ruleLanguageVersion": "1.0",
+  "playerAttributes": [
+    {"name": "skill", "type": "number"}
+  ],
+  "teams": [
+    {"name": "red",  "minPlayers": 1, "maxPlayers": 1},
+    {"name": "blue", "minPlayers": 1, "maxPlayers": 1}
+  ],
+  "acceptanceRequired": true,
+  "acceptanceTimeoutSeconds": 30
+}

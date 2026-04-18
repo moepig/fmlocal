@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head><title>Rule Sets</title></head>
+<body>
+<h1>Rule Sets</h1>
+<ul>
+{{- range .RuleSets}}
+  <li><a href="/rulesets/{{.Name}}">{{.Name}}</a></li>
+{{- else}}
+  <li>No rule sets loaded</li>
+{{- end}}
+</ul>
+<p><a href="/">Back</a></p>
+</body>
+</html>

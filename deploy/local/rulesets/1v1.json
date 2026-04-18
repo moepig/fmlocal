@@ -1,0 +1,20 @@
+{
+  "name": "1v1",
+  "ruleLanguageVersion": "1.0",
+  "playerAttributes": [
+    {"name": "skill", "type": "number"}
+  ],
+  "teams": [
+    {"name": "red",  "minPlayers": 1, "maxPlayers": 1},
+    {"name": "blue", "minPlayers": 1, "maxPlayers": 1}
+  ],
+  "rules": [
+    {
+      "name": "FairSkill",
+      "type": "distance",
+      "measurements": ["avg(teams[red].players.skill)"],
+      "referenceValue": "avg(teams[blue].players.skill)",
+      "maxDistance": 50
+    }
+  ]
+}

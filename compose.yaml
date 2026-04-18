@@ -1,0 +1,31 @@
+services:
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.11
+    container_name: fmlocal-elasticmq
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+    volumes:
+      - ./deploy/local/elasticmq.conf:/opt/elasticmq.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9324/?Action=ListQueues"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  fmlocal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fmlocal:local
+    container_name: fmlocal
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+    ports:
+      - "9080:9080"
+      - "9081:9081"
+    volumes:
+      - ./deploy/local/config.yaml:/etc/fmlocal/config.yaml:ro
+      - ./deploy/local/rulesets:/etc/fmlocal/rulesets:ro
+    command: ["-config", "/etc/fmlocal/config.yaml"]

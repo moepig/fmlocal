@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <title>{{.Name}}</title>
+  <meta http-equiv="refresh" content="3">
+</head>
+<body>
+<h1>Pool: {{.Name}}</h1>
+<table border="1" cellpadding="4">
+  <thead>
+    <tr><th>Ticket</th><th>Status</th><th>Start</th><th>Match ID</th></tr>
+  </thead>
+  <tbody>
+  {{- range .Tickets}}
+    <tr>
+      <td>{{.TicketID}}</td>
+      <td>{{.Status}}</td>
+      <td>{{.StartTime}}</td>
+      <td>{{.MatchID}}</td>
+    </tr>
+  {{- end}}
+  </tbody>
+</table>
+<p><a href="/pools">Back</a></p>
+</body>
+</html>

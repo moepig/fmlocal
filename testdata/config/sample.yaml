@@ -1,0 +1,36 @@
+server:
+  awsApiPort: 9080
+  webUIPort: 9081
+  region: us-east-1
+  accountId: "000000000000"
+  tickInterval: 500ms
+
+matchmakingConfigurations:
+  - name: default
+    ruleSetName: 1v1
+    requestTimeoutSeconds: 60
+    acceptanceRequired: false
+    backfillMode: MANUAL
+    flexMatchMode: STANDALONE
+    notificationTargets: [primarySNS]
+
+  - name: accept
+    ruleSetName: 1v1-accept
+    requestTimeoutSeconds: 120
+    acceptanceRequired: true
+    acceptanceTimeoutSeconds: 30
+    backfillMode: MANUAL
+    flexMatchMode: STANDALONE
+    notificationTargets: [primarySNS]
+
+ruleSets:
+  - name: 1v1
+    path: ../rulesets/1v1.json
+  - name: 1v1-accept
+    path: ../rulesets/1v1-accept.json
+
+publishers:
+  - id: primarySNS
+    kind: sns_http
+    enabled: true
+    url: http://localhost:9000/sns

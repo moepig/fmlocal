@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+  <title>Pools</title>
+  <meta http-equiv="refresh" content="3">
+</head>
+<body>
+<h1>Matchmaking Pools</h1>
+<table border="1" cellpadding="4">
+  <thead>
+    <tr><th>Configuration</th><th>Rule set</th><th>Active tickets</th></tr>
+  </thead>
+  <tbody>
+  {{- range .Pools}}
+    <tr>
+      <td><a href="/pools/{{.Name}}">{{.Name}}</a></td>
+      <td>{{.RuleSetName}}</td>
+      <td>{{.Active}}</td>
+    </tr>
+  {{- end}}
+  </tbody>
+</table>
+<p><a href="/">Back</a></p>
+</body>
+</html>

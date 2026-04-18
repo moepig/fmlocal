@@ -1,0 +1,40 @@
+server:
+  awsApiPort: 9080
+  webUIPort: 9081
+  region: us-east-1
+  accountId: "000000000000"
+  tickInterval: 500ms
+
+matchmakingConfigurations:
+  - name: default
+    ruleSetName: 1v1
+    requestTimeoutSeconds: 60
+    acceptanceRequired: false
+    backfillMode: MANUAL
+    flexMatchMode: STANDALONE
+    notificationTargets: [localSQS]
+
+  - name: accept
+    ruleSetName: 1v1-accept
+    requestTimeoutSeconds: 120
+    acceptanceRequired: true
+    acceptanceTimeoutSeconds: 30
+    backfillMode: MANUAL
+    flexMatchMode: STANDALONE
+    notificationTargets: [localSQS]
+
+ruleSets:
+  - name: 1v1
+    path: rulesets/1v1.json
+  - name: 1v1-accept
+    path: rulesets/1v1-accept.json
+
+publishers:
+  - id: localSQS
+    kind: sqs_eventbridge
+    enabled: true
+    queueUrl: http://elasticmq:9324/000000000000/fmlocal-events
+    awsEndpoint: http://elasticmq:9324
+    awsRegion: us-east-1
+    accessKey: x
+    secretKey: x
