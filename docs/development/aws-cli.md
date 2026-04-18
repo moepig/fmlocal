@@ -148,9 +148,63 @@ aws gamelift stop-matchmaking \
 
 The ticket transitions to `CANCELLED` on the next tick; an empty JSON body is returned on success.
 
-## Inspecting events
+## Inspecting events on ElasticMQ
 
-Every lifecycle transition is dispatched to whatever publisher the ticket's matchmaking configuration is bound to. For how to read them (SQS via the AWS CLI, or an HTTP listener for the SNS kind), the full event catalog, and the envelope shape, see [Event publishers](../feature/publishers.md).
+When fmlocal is run via `docker compose up`, lifecycle events are published to the `fmlocal-events` queue on the paired ElasticMQ container (SQS-compatible, on `http://localhost:9324`). The `aws sqs` subcommands work against it unchanged.
+
+Confirm the queue exists:
+
+```sh
+aws sqs list-queues \
+  --endpoint-url http://localhost:9324 \
+  --region us-east-1
+```
+
+The output should include `http://localhost:9324/000000000000/fmlocal-events`.
+
+Check how many events are waiting (useful for spotting a stuck or absent publisher):
+
+```sh
+aws sqs get-queue-attributes \
+  --endpoint-url http://localhost:9324 \
+  --region us-east-1 \
+  --queue-url http://localhost:9324/000000000000/fmlocal-events \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
+```
+
+Pull events off the queue. Run a couple of `start-matchmaking` calls first so something is actually there:
+
+```sh
+aws sqs receive-message \
+  --endpoint-url http://localhost:9324 \
+  --region us-east-1 \
+  --queue-url http://localhost:9324/000000000000/fmlocal-events \
+  --max-number-of-messages 10 \
+  --wait-time-seconds 1
+```
+
+Each `Body` is an EventBridge envelope — see the event catalog and envelope shape in [Event publishers](../feature/publishers.md). To make a receipt permanent (otherwise the message returns after the visibility timeout), delete it:
+
+```sh
+aws sqs delete-message \
+  --endpoint-url http://localhost:9324 \
+  --region us-east-1 \
+  --queue-url http://localhost:9324/000000000000/fmlocal-events \
+  --receipt-handle <handle-from-receive-message>
+```
+
+To drain the queue between test runs:
+
+```sh
+aws sqs purge-queue \
+  --endpoint-url http://localhost:9324 \
+  --region us-east-1 \
+  --queue-url http://localhost:9324/000000000000/fmlocal-events
+```
+
+ElasticMQ also exposes a browser stats view at `http://localhost:9325` showing queue names and message counts.
+
+If you configured an `sns_http` publisher instead, point a local HTTP listener at its `url` — the envelope arrives inside the outer SNS message's `Message` field.
 
 ## Error responses
 
