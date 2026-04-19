@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.16
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.15
 	github.com/aws/aws-sdk-go-v2/service/gamelift v1.52.1
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.25
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.26
 	github.com/google/uuid v1.6.0
 	github.com/moepig/flexi v0.0.1
 	github.com/stretchr/testify v1.11.1
