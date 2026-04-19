@@ -55,6 +55,49 @@ Commits that do not follow the convention are ignored for versioning purposes.
 
 The tag, GitHub Release, and container image are created automatically.
 
+## Manual release
+
+Use this when you need to cut a release outside the normal release-please flow — for example, to ship a hotfix directly from a tag you pushed manually.
+
+### Steps
+
+1. Push the tag if it does not exist yet:
+
+   ```sh
+   git tag v1.2.3
+   git push origin v1.2.3
+   ```
+
+2. Create the GitHub Release from the tag. This triggers the container build:
+
+   ```sh
+   gh release create v1.2.3 --title "v1.2.3" --notes "Hotfix: ..."
+   ```
+
+   The `Release` workflow fires on `release: published` and pushes the container image to GHCR as usual.
+
+3. Update `.release-please-manifest.json` to match the version you just released, so release-please picks up from the right baseline:
+
+   ```sh
+   echo '{ ".": "1.2.3" }' > .release-please-manifest.json
+   git commit -m "chore: update release-please manifest to v1.2.3"
+   git push origin main
+   ```
+
+   Without this step, release-please will not know the manual release happened and may calculate the next version incorrectly.
+
+### Behaviour of release-please after a manual release
+
+release-please determines the next version by reading `.release-please-manifest.json`, not by inspecting existing tags. The table below shows what happens in each scenario after a manual release of `v1.2.3`:
+
+| Manifest updated? | Next commit type | release-please proposes |
+|---|---|---|
+| Yes | `fix:` | `v1.2.4` |
+| Yes | `feat:` | `v1.3.0` |
+| No (still `1.2.2`) | `fix:` | `v1.2.3` — conflicts with the tag you already pushed; the Release PR will fail when release-please tries to create the tag again |
+
+Always update the manifest after a manual release.
+
 ## Configuration files
 
 | File | Purpose |
