@@ -34,6 +34,8 @@ aws gamelift describe-matchmaking-configurations \
 
 - Usage
   - [Running locally](docs/usage/local.md)
+  - [Configuration reference](docs/usage/config.md)
+  - [Logging](docs/usage/logging.md)
 - Features
   - [Event publishers](docs/feature/publishers.md)
 - Development

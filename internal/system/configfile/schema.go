@@ -18,6 +18,7 @@ type serverSection struct {
 	Region       string        `yaml:"region"`
 	AccountID    string        `yaml:"accountId"`
 	TickInterval time.Duration `yaml:"tickInterval"`
+	LogLevel     string        `yaml:"logLevel"`
 }
 
 type matchmakingConfigurationSection struct {

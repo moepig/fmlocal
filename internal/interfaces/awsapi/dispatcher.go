@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type handler func(*Server, *http.Request, []byte) (any, error)
@@ -23,6 +24,7 @@ var handlers = map[string]handler{
 }
 
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	target := r.Header.Get("X-Amz-Target")
 	action := strings.TrimPrefix(target, "GameLift.")
 	if action == "" || action == target {
@@ -43,10 +45,12 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
+			s.logger.Debug("api request", "action", action, "status", apiErr.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
 			apiErr.write(w)
 			return
 		}
 		if mapped := translateDomainError(err); mapped != nil {
+			s.logger.Debug("api request", "action", action, "status", mapped.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
 			mapped.write(w)
 			return
 		}
@@ -54,6 +58,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		newInternal("handler %q failed: %v", action, err).write(w)
 		return
 	}
+	s.logger.Debug("api request", "action", action, "status", http.StatusOK, "duration_ms", time.Since(start).Milliseconds())
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(http.StatusOK)
 	if out == nil {

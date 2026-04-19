@@ -2,6 +2,7 @@ package configfile
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -48,6 +49,7 @@ type Loaded struct {
 	AWSAPIPort   int
 	WebUIPort    int
 	TickInterval time.Duration
+	LogLevel     slog.Level
 	Configurations []ConfigurationBinding
 	RuleSets       []mm.RuleSet
 	Publishers     []Publisher
@@ -112,12 +114,17 @@ func LoadFile(path string) (*Loaded, error) {
 		bindings = append(bindings, ConfigurationBinding{Configuration: cfg, PublisherIDs: mc.NotificationTargets})
 	}
 
+	logLevel, err := parseLogLevel(doc.Server.LogLevel)
+	if err != nil {
+		return nil, err
+	}
 	loaded := &Loaded{
 		Region:         doc.Server.Region,
 		AccountID:      doc.Server.AccountID,
 		AWSAPIPort:     doc.Server.AWSAPIPort,
 		WebUIPort:      doc.Server.WebUIPort,
 		TickInterval:   doc.Server.TickInterval,
+		LogLevel:       logLevel,
 		Configurations: bindings,
 		RuleSets:       ruleSets,
 		Publishers:     publishers,
@@ -137,6 +144,24 @@ func applyDefaults(d *document) {
 	}
 	if d.Server.TickInterval == 0 {
 		d.Server.TickInterval = time.Second
+	}
+	if d.Server.LogLevel == "" {
+		d.Server.LogLevel = "info"
+	}
+}
+
+func parseLogLevel(s string) (slog.Level, error) {
+	switch s {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("configfile: unknown logLevel %q (want debug|info|warn|error)", s)
 	}
 }
 

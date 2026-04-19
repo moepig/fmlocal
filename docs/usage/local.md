@@ -87,44 +87,6 @@ cp -r deploy/local/rulesets ./rulesets
 go run ./cmd/fmlocal -config local.yaml
 ```
 
-## Configuration reference
+## Configuration
 
-`config.yaml` has four sections:
-
-```yaml
-server:
-  awsApiPort: 9080          # required, must differ from webUIPort
-  webUIPort: 9081           # required
-  region: us-east-1         # default us-east-1
-  accountId: "000000000000" # default 000000000000
-  tickInterval: 500ms       # default 1s; how often the matchmaker advances
-
-matchmakingConfigurations:  # maps to GameLift MatchmakingConfiguration
-  - name: default
-    ruleSetName: 1v1
-    requestTimeoutSeconds: 60
-    acceptanceRequired: false
-    backfillMode: MANUAL          # MANUAL or AUTOMATIC
-    flexMatchMode: STANDALONE     # only STANDALONE is supported
-    notificationTargets: [localSQS]
-
-ruleSets:                   # FlexMatch rule sets loaded from disk
-  - name: 1v1
-    path: rulesets/1v1.json # resolved relative to the config file's dir
-
-publishers:                 # outbound adapters that emit lifecycle events
-  - id: localSQS
-    kind: sqs_eventbridge   # or sns_http
-    enabled: true
-    queueUrl: http://elasticmq:9324/000000000000/fmlocal-events
-    awsEndpoint: http://elasticmq:9324
-    awsRegion: us-east-1
-    accessKey: x
-    secretKey: x
-```
-
-See [Event publishers](../feature/publishers.md) for the supported publisher kinds, their wire payloads, delivery semantics, and the full field reference. Startup validation also rejects a non-`STANDALONE` `flexMatchMode` and rule sets that are declared but never referenced.
-
-## Logs
-
-fmlocal uses `slog` with the text handler and writes to stderr. Docker Compose streams it to `docker compose logs -f fmlocal`.
+For the full list of config fields and their defaults, see [Configuration reference](config.md). For log level settings, see [Logging](logging.md).

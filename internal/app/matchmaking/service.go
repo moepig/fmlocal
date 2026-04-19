@@ -190,6 +190,9 @@ func (s *Service) dispatchEvents(ctx context.Context, name mm.ConfigurationName,
 		if err := pub.Publish(ctx, ev); err != nil {
 			s.logger().Warn("publish event failed",
 				"configuration", name, "event", ev.EventName(), "error", err.Error())
+		} else {
+			s.logger().Debug("publish event",
+				"configuration", name, "event", ev.EventName(), "ticket", t.ID())
 		}
 	}
 }

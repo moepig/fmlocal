@@ -4,6 +4,7 @@ server:
   region: us-east-1
   accountId: "000000000000"
   tickInterval: 500ms
+  logLevel: debug
 
 matchmakingConfigurations:
   - name: default
