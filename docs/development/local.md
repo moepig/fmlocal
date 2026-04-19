@@ -89,4 +89,4 @@ go run ./cmd/fmlocal -config local.yaml
 
 ## Configuration
 
-For the full list of config fields and their defaults, see [Configuration reference](config.md). For log level settings, see [Logging](logging.md).
+For the full list of config fields and their defaults, see [Configuration reference](../usage/config.md). For log level settings, see [Logging](../usage/logging.md).

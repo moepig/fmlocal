@@ -33,12 +33,13 @@ aws gamelift describe-matchmaking-configurations \
 ## Documentation
 
 - Usage
-  - [Running locally](docs/usage/local.md)
+  - [Running with the GHCR image](docs/usage/docker-compose.md)
   - [Configuration reference](docs/usage/config.md)
   - [Logging](docs/usage/logging.md)
 - Features
   - [Event publishers](docs/feature/publishers.md)
 - Development
+  - [Running locally (from source)](docs/development/local.md)
   - [Architecture](docs/development/architecture.md)
   - [Source directory layout](docs/development/directory-structure.md)
   - [Verifying with the AWS CLI](docs/development/aws-cli.md)
