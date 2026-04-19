@@ -6,6 +6,20 @@ on:
   pull_request:
 
 jobs:
+  save-pr-number:
+    name: Save PR Number
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Save PR number to artifact
+        run: echo "${{ github.event.number }}" > pr_number.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-number
+          path: pr_number.txt
+
+
   unit-test:
     name: Unit Tests
     runs-on: ubuntu-latest
