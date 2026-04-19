@@ -103,6 +103,9 @@ publishers:
     awsRegion: us-east-1
     accessKey: x
     secretKey: x
+    onlyEvents:                       # optional; allowlist of event names
+      - MatchmakingSucceeded
+      - MatchmakingFailed
 
   - id: httpSink
     kind: sns_http
@@ -110,9 +113,18 @@ publishers:
     url: http://host.docker.internal:9000/sns
 ```
 
-Startup validation (`internal/system/configfile`) rejects: duplicate publisher IDs, unknown or missing `kind`, `sns_http` without `url`, `sqs_eventbridge` without `queueUrl`, and matchmaking configurations referencing unknown or disabled publisher IDs.
+Startup validation (`internal/system/configfile`) rejects: duplicate publisher IDs, unknown or missing `kind`, `sns_http` without `url`, `sqs_eventbridge` without `queueUrl`, matchmaking configurations referencing unknown or disabled publisher IDs, and `onlyEvents` entries that are not in the canonical event list (see the event catalog above).
 
 `enabled: false` keeps the entry declared but skips instantiation — useful when toggling listeners without editing `notificationTargets`.
+
+### Filtering events per publisher
+
+`onlyEvents` is an optional allowlist of event names (from the catalog above) the publisher will emit. Omitted or empty means "forward everything" — unchanged from prior behavior. Typical use cases:
+
+- An SQS consumer that only cares about terminal outcomes: `onlyEvents: [MatchmakingSucceeded, MatchmakingFailed, MatchmakingTimedOut, MatchmakingCancelled]`.
+- A noisy HTTP sink used for lifecycle debugging that should skip per-player `AcceptMatch` spam: everything except `AcceptMatch`.
+
+Filtering is implemented as a decorator (`notification.Filtered`) wrapping the concrete publisher; it works identically for `sns_http` and `sqs_eventbridge`. A dropped event is silently skipped — no publisher call, no log line.
 
 ## Inspecting events locally
 

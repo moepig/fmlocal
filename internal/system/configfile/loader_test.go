@@ -168,6 +168,54 @@ publishers:
 	assert.Contains(t, err.Error(), "unknown kind")
 }
 
+func TestLoadFile_OnlyEventsAccepted(t *testing.T) {
+	path := writeFixture(t, `
+server:
+  awsApiPort: 9080
+  webUIPort: 9081
+matchmakingConfigurations:
+  - name: default
+    ruleSetName: 1v1
+    flexMatchMode: STANDALONE
+    notificationTargets: [sink]
+ruleSets:
+  - name: 1v1
+    path: ruleset.json
+publishers:
+  - id: sink
+    kind: sqs_eventbridge
+    enabled: true
+    queueUrl: http://elasticmq:9324/000000000000/fmlocal-events
+    onlyEvents:
+      - MatchmakingSucceeded
+      - MatchmakingFailed
+`)
+	loaded, err := configfile.LoadFile(path)
+	require.NoError(t, err)
+	require.Len(t, loaded.Publishers, 1)
+	assert.Equal(t, []string{"MatchmakingSucceeded", "MatchmakingFailed"}, loaded.Publishers[0].OnlyEvents)
+}
+
+func TestLoadFile_OnlyEventsRejectsUnknownName(t *testing.T) {
+	path := writeFixture(t, `
+server:
+  awsApiPort: 9080
+  webUIPort: 9081
+ruleSets:
+  - name: 1v1
+    path: ruleset.json
+publishers:
+  - id: sink
+    kind: sqs_eventbridge
+    enabled: true
+    queueUrl: http://elasticmq:9324/000000000000/fmlocal-events
+    onlyEvents: [MatchmakingBogus]
+`)
+	_, err := configfile.LoadFile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "onlyEvents contains unknown event")
+}
+
 func TestLoadFile_FlexMatchModeWithQueueRejected(t *testing.T) {
 	path := writeFixture(t, `
 server:

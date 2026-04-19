@@ -37,13 +37,14 @@ type ruleSetSection struct {
 }
 
 type publisherSection struct {
-	ID          string `yaml:"id"`
-	Kind        string `yaml:"kind"`
-	Enabled     bool   `yaml:"enabled"`
-	URL         string `yaml:"url"`
-	QueueURL    string `yaml:"queueUrl"`
-	AWSEndpoint string `yaml:"awsEndpoint"`
-	AWSRegion   string `yaml:"awsRegion"`
-	AccessKey   string `yaml:"accessKey"`
-	SecretKey   string `yaml:"secretKey"`
+	ID          string   `yaml:"id"`
+	Kind        string   `yaml:"kind"`
+	Enabled     bool     `yaml:"enabled"`
+	URL         string   `yaml:"url"`
+	QueueURL    string   `yaml:"queueUrl"`
+	AWSEndpoint string   `yaml:"awsEndpoint"`
+	AWSRegion   string   `yaml:"awsRegion"`
+	AccessKey   string   `yaml:"accessKey"`
+	SecretKey   string   `yaml:"secretKey"`
+	OnlyEvents  []string `yaml:"onlyEvents"`
 }

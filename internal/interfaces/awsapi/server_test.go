@@ -194,6 +194,32 @@ func TestDescribeMatchmakingConfigurations_FilterByName(t *testing.T) {
 	assert.Len(t, out.Configurations, 0)
 }
 
+func TestDescribeMatchmakingConfigurations_FilterByRuleSet(t *testing.T) {
+	h := setup(t)
+	code, body := call(t, h.httpSrv, "DescribeMatchmakingConfigurations", `{"RuleSetName": "1v1"}`)
+	require.Equal(t, 200, code)
+	var out awsapi.DescribeMatchmakingConfigurationsOutput
+	require.NoError(t, json.Unmarshal(body, &out))
+	require.Len(t, out.Configurations, 1)
+	assert.Equal(t, "c1", out.Configurations[0].Name)
+
+	code, body = call(t, h.httpSrv, "DescribeMatchmakingConfigurations", `{"RuleSetName": "other"}`)
+	require.Equal(t, 200, code)
+	require.NoError(t, json.Unmarshal(body, &out))
+	assert.Len(t, out.Configurations, 0)
+}
+
+func TestDescribeMatchmakingRuleSets_All(t *testing.T) {
+	h := setup(t)
+	code, body := call(t, h.httpSrv, "DescribeMatchmakingRuleSets", `{}`)
+	require.Equal(t, 200, code)
+	var out awsapi.DescribeMatchmakingRuleSetsOutput
+	require.NoError(t, json.Unmarshal(body, &out))
+	require.Len(t, out.RuleSets, 1)
+	assert.Equal(t, "1v1", out.RuleSets[0].RuleSetName)
+	assert.NotEmpty(t, out.RuleSets[0].RuleSetBody)
+}
+
 func TestAcceptMatch_RequiresTicketId(t *testing.T) {
 	h := setup(t)
 	code, body := call(t, h.httpSrv, "AcceptMatch", `{"AcceptanceType":"ACCEPT","PlayerIds":["p1"]}`)

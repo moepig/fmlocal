@@ -21,6 +21,32 @@ type Event interface {
 	OccurredAt() time.Time
 }
 
+// Domain event names. These are the values EventName() returns and the
+// strings published consumers see in the EventBridge envelope's detail.type.
+const (
+	EventNameMatchmakingSearching  = "MatchmakingSearching"
+	EventNamePotentialMatchCreated = "PotentialMatchCreated"
+	EventNameAcceptMatch           = "AcceptMatch"
+	EventNameAcceptMatchCompleted  = "AcceptMatchCompleted"
+	EventNameMatchmakingSucceeded  = "MatchmakingSucceeded"
+	EventNameMatchmakingFailed     = "MatchmakingFailed"
+	EventNameMatchmakingTimedOut   = "MatchmakingTimedOut"
+	EventNameMatchmakingCancelled  = "MatchmakingCancelled"
+)
+
+// KnownEventNames is the exhaustive set of domain event names fmlocal emits.
+// Configuration loaders can validate against it.
+var KnownEventNames = []string{
+	EventNameMatchmakingSearching,
+	EventNamePotentialMatchCreated,
+	EventNameAcceptMatch,
+	EventNameAcceptMatchCompleted,
+	EventNameMatchmakingSucceeded,
+	EventNameMatchmakingFailed,
+	EventNameMatchmakingTimedOut,
+	EventNameMatchmakingCancelled,
+}
+
 type baseEvent struct {
 	configName ConfigurationName
 	occurredAt time.Time

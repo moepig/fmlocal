@@ -31,6 +31,7 @@ type Publisher struct {
 	AWSRegion   string
 	AccessKey   string
 	SecretKey   string
+	OnlyEvents  []string
 }
 
 // ConfigurationBinding links a Configuration to its ordered list of publisher
@@ -90,6 +91,7 @@ func LoadFile(path string) (*Loaded, error) {
 			URL: p.URL, QueueURL: p.QueueURL,
 			AWSEndpoint: p.AWSEndpoint, AWSRegion: p.AWSRegion,
 			AccessKey: p.AccessKey, SecretKey: p.SecretKey,
+			OnlyEvents: append([]string(nil), p.OnlyEvents...),
 		})
 	}
 
@@ -158,6 +160,10 @@ func (l *Loaded) validate() error {
 		}
 		rsNames[rs.Name] = true
 	}
+	knownEvents := map[string]bool{}
+	for _, n := range mm.KnownEventNames {
+		knownEvents[n] = true
+	}
 	pubs := map[string]Publisher{}
 	for _, p := range l.Publishers {
 		if p.ID == "" {
@@ -179,6 +185,11 @@ func (l *Loaded) validate() error {
 			return fmt.Errorf("configfile: publisher %q missing kind", p.ID)
 		default:
 			return fmt.Errorf("configfile: publisher %q unknown kind %q", p.ID, p.Kind)
+		}
+		for _, n := range p.OnlyEvents {
+			if !knownEvents[n] {
+				return fmt.Errorf("configfile: publisher %q onlyEvents contains unknown event %q", p.ID, n)
+			}
 		}
 		pubs[p.ID] = p
 	}
