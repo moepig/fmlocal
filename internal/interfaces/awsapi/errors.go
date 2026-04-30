@@ -19,6 +19,7 @@ func (e *APIError) Error() string { return fmt.Sprintf("%s: %s", e.TypeName, e.M
 
 func (e *APIError) write(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+	w.Header().Set("smithy-protocol", "aws-json-1.1")
 	if e.HTTPStatus == 0 {
 		e.HTTPStatus = http.StatusBadRequest
 	}

@@ -60,6 +60,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Debug("api request", "action", action, "status", http.StatusOK, "duration_ms", time.Since(start).Milliseconds())
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+	w.Header().Set("smithy-protocol", "aws-json-1.1")
 	w.WriteHeader(http.StatusOK)
 	if out == nil {
 		_, _ = w.Write([]byte("{}"))
