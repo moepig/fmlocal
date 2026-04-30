@@ -69,6 +69,65 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+func (s *Server) dispatchCBOR(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	action := r.PathValue("action")
+	if action == "" {
+		newInvalidRequest("missing action in URL path").writeCBOR(w)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		newInvalidRequest("read request body: %v", err).writeCBOR(w)
+		return
+	}
+	jsonBody, err := cborBodyToJSON(body)
+	if err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) {
+			apiErr.writeCBOR(w)
+			return
+		}
+		newInvalidRequest("convert cbor body: %v", err).writeCBOR(w)
+		return
+	}
+	h, ok := handlers[action]
+	if !ok {
+		newUnknownOperation("unknown action %q", action).writeCBOR(w)
+		return
+	}
+	out, err := h(s, r, jsonBody)
+	if err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) {
+			s.logger.Debug("api request", "action", action, "status", apiErr.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
+			apiErr.writeCBOR(w)
+			return
+		}
+		if mapped := translateDomainError(err); mapped != nil {
+			s.logger.Debug("api request", "action", action, "status", mapped.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
+			mapped.writeCBOR(w)
+			return
+		}
+		s.logger.Error("handler error", "action", action, "err", err.Error())
+		newInternal("handler %q failed: %v", action, err).writeCBOR(w)
+		return
+	}
+	s.logger.Debug("api request", "action", action, "status", http.StatusOK, "duration_ms", time.Since(start).Milliseconds())
+	w.Header().Set("Content-Type", "application/cbor")
+	w.Header().Set("smithy-protocol", "rpc-v2-cbor")
+	w.WriteHeader(http.StatusOK)
+	if out == nil {
+		return
+	}
+	cborBytes, err := encodeCBOR(out)
+	if err != nil {
+		s.logger.Error("cbor encode error", "action", action, "err", err.Error())
+		return
+	}
+	_, _ = w.Write(cborBytes)
+}
+
 func decodeJSON(body []byte, dst any) error {
 	if len(body) == 0 {
 		return nil

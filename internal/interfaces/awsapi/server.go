@@ -35,6 +35,7 @@ func NewServer(service *appmm.Service, opts Options, logger *slog.Logger) *Serve
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /", s.dispatch)
+	mux.HandleFunc("POST /service/GameLift/operation/{action}", s.dispatchCBOR)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
