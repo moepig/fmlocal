@@ -4,7 +4,7 @@ fmlocal follows a hexagonal (ports-and-adapters) layout with a DDD-flavored doma
 
 ```
                      +-------------------------+
- AWS SDK / CLI  -->  |   interfaces/awsapi     |  inbound adapter (JSON-RPC)
+ AWS SDK / CLI  -->  |   interfaces/awsapi     |  inbound adapter (rpc-v2-cbor / aws-json-1.1)
                      +-----------+-------------+
                                  |
  Browser        -->  | interfaces/webui |      inbound adapter (HTML)
@@ -60,7 +60,12 @@ Ports (`internal/app/ports`) are the side-effecting interfaces the application s
 
 Inbound adapters. They translate transport-specific inputs into application commands and application results into transport-specific outputs.
 
-`awsapi` implements a subset of the GameLift JSON 1.1 protocol: it dispatches on `X-Amz-Target`, decodes the wire DTO, calls the application service, encodes the response, and maps domain errors to GameLift error codes. Wire DTOs live in `dto.go`; the DTO ↔ domain/flexi conversion helpers live in `convert.go`.
+`awsapi` implements a subset of the GameLift wire protocol and supports two protocol variants:
+
+- **rpc-v2-cbor** (gamelift SDK ≥ v1.54.0): requests arrive on `/service/GameLift/operation/{action}` with a CBOR-encoded body and `smithy-protocol: rpc-v2-cbor`. `dispatchCBOR` decodes the body via `cbor_codec.go`, bridges it to JSON for the existing handlers, and re-encodes the response as CBOR (timestamp fields wrapped in CBOR Tag 1).
+- **aws-json-1.1** (legacy / unit tests): requests arrive on `/` with `X-Amz-Target: GameLift.<action>` and a JSON body. `dispatch` handles these unchanged.
+
+Wire DTOs live in `dto.go`; the DTO ↔ domain/flexi conversion helpers live in `convert.go`. Domain errors are mapped to GameLift error codes in `errors.go`.
 
 `webui` serves a read-only operator view using `html/template` with templates embedded via `go:embed`. It is given a `*appmm.Service` and reads through the service's public accessors.
 

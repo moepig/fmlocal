@@ -110,19 +110,20 @@ Inbound adapters.
 
 ### `awsapi/`
 
-GameLift JSON 1.1 JSON-RPC server.
+GameLift API server. Supports two protocol variants: **rpc-v2-cbor** (SDK ≥ v1.54.0, routed via `/service/GameLift/operation/{action}`) and the legacy **aws-json-1.1** (routed via `X-Amz-Target` header on `/`).
 
 | File                         | Purpose                                           |
 |------------------------------|---------------------------------------------------|
-| `server.go`                  | `Server` struct, `Handler`, `Run` (start + graceful shutdown). |
-| `dispatcher.go`              | `X-Amz-Target` routing and JSON decode.           |
+| `server.go`                  | `Server` struct, `Handler` (registers both routes), `Run` (start + graceful shutdown). |
+| `dispatcher.go`              | `dispatch` (aws-json-1.1: `X-Amz-Target` routing + JSON) and `dispatchCBOR` (rpc-v2-cbor: URL-path routing + CBOR). |
+| `cbor_codec.go`              | CBOR encode/decode helpers: `cborBodyToJSON`, `encodeCBOR`, reflection-based `goToCBOR` with Tag 1 timestamp handling. |
 | `dto.go`                     | Wire DTOs for every supported operation.          |
 | `convert.go`                 | DTO ↔ domain/flexi conversion helpers.            |
 | `errors.go`                  | `APIError` + GameLift-compatible error codes + `translateDomainError`. |
 | `handlers_matchmaking.go`    | Handlers for `Start/Stop/Describe/AcceptMatch`.   |
 | `handlers_registry.go`       | Handlers for configurations, rule sets, and `ValidateMatchmakingRuleSet`. |
 | `convert_test.go`            | Conversion round-trip tests.                      |
-| `server_test.go`             | End-to-end server tests with a real HTTP server.  |
+| `server_test.go`             | End-to-end server tests with a real HTTP server (uses aws-json-1.1 path). |
 
 ### `webui/`
 
