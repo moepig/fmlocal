@@ -1,35 +1,30 @@
 name: Release
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag (e.g. v0.0.3)'
-        required: true
+  push:
+    tags:
+      - "v*"
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
+permissions:
+  contents: write
+  packages: write
 
 jobs:
-  release:
-    name: Release
+  goreleaser:
+    name: GoReleaser
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
 
-      - name: Extract version
-        id: version
-        run: |
-          REF="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -41,15 +36,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v7
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          build-args: VERSION=${{ steps.version.outputs.version }}
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

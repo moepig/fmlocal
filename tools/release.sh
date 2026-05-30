@@ -4,6 +4,10 @@ set -euo pipefail
 usage() {
   echo "Usage: $0 <version>"
   echo "  version: semantic version without v prefix (e.g. 1.2.3)"
+  echo ""
+  echo "Creates and pushes the vX.Y.Z tag. The Release workflow then runs"
+  echo "GoReleaser, which builds the binaries, publishes the GitHub Release"
+  echo "with generated notes, and pushes the container image to GHCR."
   exit 1
 }
 
@@ -26,13 +30,5 @@ echo "==> Creating tag $TAG"
 git tag "$TAG"
 git push origin "$TAG"
 
-echo "==> Creating GitHub Release $TAG"
-gh release create "$TAG" --title "$TAG" --generate-notes
-
-echo "==> Updating .release-please-manifest.json"
-echo "{ \".\": \"${VERSION}\" }" > .release-please-manifest.json
-git add .release-please-manifest.json
-git commit -m "chore: update release-please manifest to ${TAG}"
-git push origin main
-
-echo "==> Done. Container image will be built by the Release workflow."
+echo "==> Done. The Release workflow will run GoReleaser to publish the"
+echo "    GitHub Release and container image for $TAG."

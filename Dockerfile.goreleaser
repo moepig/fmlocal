@@ -1,0 +1,10 @@
+# Dockerfile used by GoReleaser. The binary is cross-compiled by GoReleaser on
+# the host and copied in, so no build stage (or QEMU emulation) is needed here.
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY fmlocal /app/fmlocal
+
+EXPOSE 9080 9081
+USER nonroot:nonroot
+ENTRYPOINT ["/app/fmlocal"]
+CMD ["-config", "/etc/fmlocal/config.yaml"]
