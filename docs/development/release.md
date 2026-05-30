@@ -40,9 +40,8 @@ GoReleaser groups the generated notes by commit prefix (see
 | Others | anything not excluded |
 
 `docs:`, `test:`, `ci:`, `style:`, `refactor:`, and merge commits are excluded.
-Unlike the previous release-please setup, the version is chosen by you (via the
-tag), so dependency-update commits are included in the release notes without
-needing to bump the version themselves.
+The version is chosen by you (via the tag), so dependency-update commits are
+included in the release notes without needing to bump the version themselves.
 
 ## Making a release
 
