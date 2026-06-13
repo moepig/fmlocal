@@ -2,7 +2,10 @@
 # the host and copied in, so no build stage (or QEMU emulation) is needed here.
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
-COPY fmlocal /app/fmlocal
+# dockers_v2 lays the build context out per platform ($TARGETPLATFORM, e.g.
+# linux/amd64), so the binary lives under that subdirectory, not at the root.
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/fmlocal /app/fmlocal
 
 EXPOSE 9080 9081
 USER nonroot:nonroot
