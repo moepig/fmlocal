@@ -178,7 +178,7 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	case mm.EventMatchmakingCancelled:
 		d.MatchID = string(ev.MatchID())
 		d.Reason = "Cancelled"
-		d.Message = "Matchmaking stopped by client"
+		d.Message = "Cancelled by request."
 		d.Tickets = t.lookupTickets(ev.TicketID())
 	default:
 		return Detail{}, fmt.Errorf("notification: unknown event %T", e)

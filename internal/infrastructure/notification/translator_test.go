@@ -162,6 +162,25 @@ func TestTranslator_AllEventTypes(t *testing.T) {
 	}
 }
 
+func TestTranslator_CancelledMatchesAWSReasonAndMessage(t *testing.T) {
+	now := time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC)
+	cfg := mm.Configuration{Name: "cfg", ARN: "arn:cfg"}
+	tk, err := mm.NewTicket("t1", cfg, []mm.Player{{ID: "p1"}}, now)
+	require.NoError(t, err)
+	_ = tk.PullEvents()
+	tk.RequestCancel()
+	require.NoError(t, tk.MarkCancelledByAPI(now))
+	ev := tk.PullEvents()[0]
+
+	tr := notification.NewTranslator(idgen.NewSequence("e-"),
+		notification.EnvelopeSettings{Region: "us-east-1", AccountID: "000000000000"}, lookupFor(tk))
+	env, err := tr.Render(ev)
+	require.NoError(t, err)
+	assert.Equal(t, "MatchmakingCancelled", env.Detail.Type)
+	assert.Equal(t, "Cancelled", env.Detail.Reason)
+	assert.Equal(t, "Cancelled by request.", env.Detail.Message)
+}
+
 func TestTranslator_MarshalProducesStableJSON(t *testing.T) {
 	tk := makeTicket(t)
 	events := tk.PullEvents()
