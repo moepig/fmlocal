@@ -38,6 +38,15 @@ const acceptanceRuleSet = `{
     {"name": "red",  "minPlayers": 1, "maxPlayers": 1},
     {"name": "blue", "minPlayers": 1, "maxPlayers": 1}
   ],
+  "rules": [
+    {
+      "name": "FairSkill",
+      "type": "distance",
+      "measurements": ["avg(teams[red].players.skill)"],
+      "referenceValue": "avg(teams[blue].players.skill)",
+      "maxDistance": 50
+    }
+  ],
   "acceptanceRequired": true,
   "acceptanceTimeoutSeconds": 30
 }`
@@ -337,6 +346,18 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 		require.Lenf(t, evs, 1, "expected exactly one %s", typ)
 		assert.ElementsMatchf(t, []string{"t1", "t2"}, ticketIDsOf(evs[0]), "%s tickets", typ)
 	}
+
+	// PotentialMatchCreated carries the engine's rule-evaluation metrics.
+	pmc := st.sink.eventsOfType("PotentialMatchCreated")[0]
+	require.NotEmpty(t, pmc.Detail.RuleEvaluationMetric)
+	var fair *notification.RuleEvalMetric
+	for i := range pmc.Detail.RuleEvaluationMetric {
+		if pmc.Detail.RuleEvaluationMetric[i].RuleName == "FairSkill" {
+			fair = &pmc.Detail.RuleEvaluationMetric[i]
+		}
+	}
+	require.NotNil(t, fair, "FairSkill metric present")
+	assert.GreaterOrEqual(t, fair.PassedCount, 1)
 }
 
 func TestE2E_StopMatchmakingCancels(t *testing.T) {

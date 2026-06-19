@@ -42,6 +42,7 @@ type Ticket struct {
 	searchingEmitted  bool
 	estimatedWait     *time.Duration
 	playerTeams       map[string]string
+	ruleMetrics       []RuleEvaluationMetric
 
 	events []Event
 }
@@ -105,6 +106,13 @@ func (t *Ticket) SetPlayerTeams(teams map[string]string) {
 			t.playerTeams[p.ID] = team
 		}
 	}
+}
+
+// SetRuleMetrics records the engine's cumulative rule-evaluation metrics for
+// this ticket so they can be surfaced in its terminal MatchmakingTimedOut /
+// MatchmakingCancelled event.
+func (t *Ticket) SetRuleMetrics(metrics []RuleEvaluationMetric) {
+	t.ruleMetrics = metrics
 }
 
 // PullEvents returns and clears the events accumulated since the last pull.
@@ -188,7 +196,7 @@ func (t *Ticket) MarkTimedOut(reason, message string, now time.Time) error {
 	t.statusReason = reason
 	t.statusMessage = message
 	t.recordEvent(EventMatchmakingTimedOut{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: reason, message: message, occurredAt: now,
+		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: reason, message: message, ruleMetrics: t.ruleMetrics, occurredAt: now,
 	})
 	return nil
 }
@@ -225,7 +233,7 @@ func (t *Ticket) MarkCancelledByAPI(now time.Time) error {
 	t.statusReason = "Cancelled"
 	t.statusMessage = "Matchmaking stopped by client"
 	t.recordEvent(EventMatchmakingCancelled{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, occurredAt: now,
+		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, ruleMetrics: t.ruleMetrics, occurredAt: now,
 	})
 	return nil
 }

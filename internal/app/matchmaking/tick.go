@@ -113,6 +113,7 @@ func (s *Service) enforceRequestTimeouts(ctx context.Context, cfg mm.Configurati
 		if now.Sub(ticket.StartTime()) < cfg.RequestTimeout {
 			continue
 		}
+		captureRuleMetrics(engine, ticket)
 		if err := engine.Cancel(string(ticket.ID())); err != nil && !errors.Is(err, flexi.ErrUnknownTicket) {
 			return fmt.Errorf("engine cancel (request timeout): %w", err)
 		}
@@ -147,6 +148,27 @@ func playerTeams(teams map[string][]flexi.Player) map[string]string {
 	return out
 }
 
+// toRuleMetrics converts the engine's rule-evaluation tallies into the domain
+// type used by matchmaking events.
+func toRuleMetrics(src []flexi.RuleMetric) []mm.RuleEvaluationMetric {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]mm.RuleEvaluationMetric, len(src))
+	for i, m := range src {
+		out[i] = mm.RuleEvaluationMetric{RuleName: m.RuleName, PassedCount: m.PassedCount, FailedCount: m.FailedCount}
+	}
+	return out
+}
+
+// captureRuleMetrics records the engine's cumulative rule metrics for a ticket
+// so its terminal (timed-out/cancelled) event can surface them.
+func captureRuleMetrics(engine *flexi.Matchmaker, ticket *mm.Ticket) {
+	if m, ok := engine.RuleMetrics(string(ticket.ID())); ok {
+		ticket.SetRuleMetrics(toRuleMetrics(m))
+	}
+}
+
 func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationName, before, after []flexi.Proposal, now time.Time) error {
 	tracker := s.tracker(name)
 	seen := map[string]bool{}
@@ -178,8 +200,9 @@ func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationNa
 				return err
 			}
 		}
-		// One PotentialMatchCreated per match, carrying every ticket.
-		s.publishEvent(ctx, name, mm.NewPotentialMatchCreated(name, matchID, tids, now))
+		// One PotentialMatchCreated per match, carrying every ticket and the
+		// search's rule-evaluation metrics.
+		s.publishEvent(ctx, name, mm.NewPotentialMatchCreated(name, matchID, tids, toRuleMetrics(p.RuleEvaluationMetrics), now))
 	}
 	return nil
 }
@@ -252,6 +275,9 @@ func (s *Service) syncActiveTickets(ctx context.Context, cfg mm.Configuration, e
 			continue
 		}
 		matchID := ticket.MatchID()
+		if curr == mm.StatusCancelled || curr == mm.StatusTimedOut {
+			captureRuleMetrics(engine, ticket)
+		}
 		outcome, err := s.transitionFromEngine(cfg, ticket, curr, now)
 		if err != nil {
 			return err

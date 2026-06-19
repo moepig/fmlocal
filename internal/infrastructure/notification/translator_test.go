@@ -86,7 +86,7 @@ func TestTranslator_AllEventTypes(t *testing.T) {
 		{
 			name: "PotentialMatchCreated",
 			setup: func(tk *mm.Ticket) mm.Event {
-				return mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, now)
+				return mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, nil, now)
 			},
 			wantTyp: "PotentialMatchCreated",
 		},
@@ -179,6 +179,47 @@ func TestTranslator_CancelledMatchesAWSReasonAndMessage(t *testing.T) {
 	assert.Equal(t, "MatchmakingCancelled", env.Detail.Type)
 	assert.Equal(t, "Cancelled", env.Detail.Reason)
 	assert.Equal(t, "Cancelled by request.", env.Detail.Message)
+}
+
+func TestTranslator_RendersRuleEvaluationMetrics(t *testing.T) {
+	now := time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC)
+	metrics := []mm.RuleEvaluationMetric{{RuleName: "FairSkill", PassedCount: 3, FailedCount: 1}}
+
+	render := func(ev mm.Event, tk *mm.Ticket) notification.Detail {
+		tr := notification.NewTranslator(idgen.NewSequence("e-"),
+			notification.EnvelopeSettings{Region: "us-east-1", AccountID: "000000000000"}, lookupFor(tk))
+		env, err := tr.Render(ev)
+		require.NoError(t, err)
+		return env.Detail
+	}
+	assertFairSkill := func(t *testing.T, d notification.Detail) {
+		t.Helper()
+		require.Len(t, d.RuleEvaluationMetric, 1)
+		assert.Equal(t, "FairSkill", d.RuleEvaluationMetric[0].RuleName)
+		assert.Equal(t, 3, d.RuleEvaluationMetric[0].PassedCount)
+		assert.Equal(t, 1, d.RuleEvaluationMetric[0].FailedCount)
+	}
+
+	t.Run("PotentialMatchCreated", func(t *testing.T) {
+		tk := makeTicket(t)
+		ev := mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, metrics, now)
+		assertFairSkill(t, render(ev, tk))
+	})
+	t.Run("MatchmakingTimedOut", func(t *testing.T) {
+		tk := makeTicket(t)
+		_ = tk.PullEvents()
+		tk.SetRuleMetrics(metrics)
+		require.NoError(t, tk.MarkTimedOut("TimedOut", "timed out", now))
+		assertFairSkill(t, render(tk.PullEvents()[0], tk))
+	})
+	t.Run("MatchmakingCancelled", func(t *testing.T) {
+		tk := makeTicket(t)
+		_ = tk.PullEvents()
+		tk.SetRuleMetrics(metrics)
+		tk.RequestCancel()
+		require.NoError(t, tk.MarkCancelledByAPI(now))
+		assertFairSkill(t, render(tk.PullEvents()[0], tk))
+	})
 }
 
 func TestTranslator_MarshalProducesStableJSON(t *testing.T) {

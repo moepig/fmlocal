@@ -141,6 +141,7 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	case mm.EventTicketAssignedToProposal:
 		d.MatchID = string(ev.MatchID())
 		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
+		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
 	case mm.EventPlayerAcceptanceRecorded:
 		d.MatchID = string(ev.MatchID())
 		td := t.lookupTickets(ev.TicketIDs()...)
@@ -175,15 +176,30 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		d.Reason = ev.Reason()
 		d.Message = ev.Message()
 		d.Tickets = t.lookupTickets(ev.TicketID())
+		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
 	case mm.EventMatchmakingCancelled:
 		d.MatchID = string(ev.MatchID())
 		d.Reason = "Cancelled"
 		d.Message = "Cancelled by request."
 		d.Tickets = t.lookupTickets(ev.TicketID())
+		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
 	default:
 		return Detail{}, fmt.Errorf("notification: unknown event %T", e)
 	}
 	return d, nil
+}
+
+// toWireRuleMetrics converts domain rule-evaluation metrics into the wire shape
+// AWS emits under detail.ruleEvaluationMetrics.
+func toWireRuleMetrics(src []mm.RuleEvaluationMetric) []RuleEvalMetric {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]RuleEvalMetric, len(src))
+	for i, m := range src {
+		out[i] = RuleEvalMetric{RuleName: m.RuleName, PassedCount: m.PassedCount, FailedCount: m.FailedCount}
+	}
+	return out
 }
 
 func (t *Translator) lookupTickets(ids ...mm.TicketID) []TicketDetail {

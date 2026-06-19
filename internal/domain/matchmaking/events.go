@@ -11,6 +11,15 @@ const (
 	AcceptanceTimedOut AcceptanceOutcome = "TimedOut"
 )
 
+// RuleEvaluationMetric is the per-rule pass/fail tally FlexMatch reports in the
+// ruleEvaluationMetrics array of PotentialMatchCreated, MatchmakingTimedOut and
+// MatchmakingCancelled events. The values originate from the matchmaking engine.
+type RuleEvaluationMetric struct {
+	RuleName    string
+	PassedCount int
+	FailedCount int
+}
+
 // Event is the base interface for matchmaking domain events. Adapters
 // translate events into whatever wire format their transport requires (for
 // fmlocal: AWS EventBridge envelopes).
@@ -82,15 +91,16 @@ func (e EventTicketSearchingStarted) TicketID() TicketID                      { 
 // EventTicketAssignedToProposal maps to PotentialMatchCreated: flexi has formed
 // a candidate match from the given tickets.
 type EventTicketAssignedToProposal struct {
-	configName ConfigurationName
-	matchID    MatchID
-	ticketIDs  []TicketID
-	occurredAt time.Time
+	configName  ConfigurationName
+	matchID     MatchID
+	ticketIDs   []TicketID
+	ruleMetrics []RuleEvaluationMetric
+	occurredAt  time.Time
 }
 
 // NewPotentialMatchCreated builds a match-level PotentialMatchCreated event.
-func NewPotentialMatchCreated(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, now time.Time) EventTicketAssignedToProposal {
-	return EventTicketAssignedToProposal{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, occurredAt: now}
+func NewPotentialMatchCreated(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, ruleMetrics []RuleEvaluationMetric, now time.Time) EventTicketAssignedToProposal {
+	return EventTicketAssignedToProposal{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, ruleMetrics: ruleMetrics, occurredAt: now}
 }
 
 func (e EventTicketAssignedToProposal) isMatchmakingEvent()                 {}
@@ -99,6 +109,7 @@ func (e EventTicketAssignedToProposal) ConfigurationName() ConfigurationName { r
 func (e EventTicketAssignedToProposal) OccurredAt() time.Time                { return e.occurredAt }
 func (e EventTicketAssignedToProposal) TicketIDs() []TicketID                { return e.ticketIDs }
 func (e EventTicketAssignedToProposal) MatchID() MatchID                     { return e.matchID }
+func (e EventTicketAssignedToProposal) RuleMetrics() []RuleEvaluationMetric  { return e.ruleMetrics }
 
 // EventPlayerAcceptanceRecorded maps to AcceptMatch: one or more players in the
 // match responded Accept or Reject. The event carries every ticket in the match
@@ -192,15 +203,16 @@ func (e EventMatchmakingFailed) Message() string                      { return e
 
 // EventMatchmakingTimedOut fires on request or acceptance timeout.
 type EventMatchmakingTimedOut struct {
-	ticketID   TicketID
-	configName ConfigurationName
-	matchID    MatchID
-	reason     string
-	message    string
-	occurredAt time.Time
+	ticketID    TicketID
+	configName  ConfigurationName
+	matchID     MatchID
+	reason      string
+	message     string
+	ruleMetrics []RuleEvaluationMetric
+	occurredAt  time.Time
 }
 
-func (e EventMatchmakingTimedOut) isMatchmakingEvent()                 {}
+func (e EventMatchmakingTimedOut) isMatchmakingEvent()                  {}
 func (e EventMatchmakingTimedOut) EventName() string                    { return "MatchmakingTimedOut" }
 func (e EventMatchmakingTimedOut) ConfigurationName() ConfigurationName { return e.configName }
 func (e EventMatchmakingTimedOut) OccurredAt() time.Time                { return e.occurredAt }
@@ -208,18 +220,21 @@ func (e EventMatchmakingTimedOut) TicketID() TicketID                   { return
 func (e EventMatchmakingTimedOut) MatchID() MatchID                     { return e.matchID }
 func (e EventMatchmakingTimedOut) Reason() string                       { return e.reason }
 func (e EventMatchmakingTimedOut) Message() string                      { return e.message }
+func (e EventMatchmakingTimedOut) RuleMetrics() []RuleEvaluationMetric  { return e.ruleMetrics }
 
 // EventMatchmakingCancelled fires when the user stops matchmaking.
 type EventMatchmakingCancelled struct {
-	ticketID   TicketID
-	configName ConfigurationName
-	matchID    MatchID
-	occurredAt time.Time
+	ticketID    TicketID
+	configName  ConfigurationName
+	matchID     MatchID
+	ruleMetrics []RuleEvaluationMetric
+	occurredAt  time.Time
 }
 
-func (e EventMatchmakingCancelled) isMatchmakingEvent()                 {}
+func (e EventMatchmakingCancelled) isMatchmakingEvent()                  {}
 func (e EventMatchmakingCancelled) EventName() string                    { return "MatchmakingCancelled" }
 func (e EventMatchmakingCancelled) ConfigurationName() ConfigurationName { return e.configName }
 func (e EventMatchmakingCancelled) OccurredAt() time.Time                { return e.occurredAt }
 func (e EventMatchmakingCancelled) TicketID() TicketID                   { return e.ticketID }
 func (e EventMatchmakingCancelled) MatchID() MatchID                     { return e.matchID }
+func (e EventMatchmakingCancelled) RuleMetrics() []RuleEvaluationMetric  { return e.ruleMetrics }
