@@ -47,6 +47,18 @@ func TestTranslator_RendersSearchingEnvelope(t *testing.T) {
 	require.Len(t, env.Detail.Tickets, 1)
 	assert.Equal(t, "t1", env.Detail.Tickets[0].TicketID)
 	assert.Equal(t, []string{"arn:aws:gamelift:us-east-1:000000000000:matchmakingconfiguration/cfg"}, env.Resources)
+	assert.Equal(t, "NOT_AVAILABLE", env.Detail.EstimatedWaitMillis)
+
+	// Confirm it serializes as the bare string AWS emits.
+	raw, err := tr.Marshal(events[0])
+	require.NoError(t, err)
+	var out struct {
+		Detail struct {
+			EstimatedWaitMillis any `json:"estimatedWaitMillis"`
+		} `json:"detail"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &out))
+	assert.Equal(t, "NOT_AVAILABLE", out.Detail.EstimatedWaitMillis)
 }
 
 func newTranslator(t *testing.T) (*notification.Translator, *mm.Ticket) {

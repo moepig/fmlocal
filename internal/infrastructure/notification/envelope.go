@@ -13,6 +13,10 @@ import (
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 )
 
+// estimatedWaitNotAvailable is the sentinel AWS uses for MatchmakingSearching
+// when no wait-time estimate is available.
+const estimatedWaitNotAvailable = "NOT_AVAILABLE"
+
 // EventBridgeEnvelope mirrors the on-the-wire shape AWS emits.
 type EventBridgeEnvelope struct {
 	Version    string   `json:"version"`
@@ -35,7 +39,9 @@ type Detail struct {
 	AcceptanceTimeout    *int             `json:"acceptanceTimeout,omitempty"`
 	Acceptance           string           `json:"acceptance,omitempty"`
 	RuleEvaluationMetric []RuleEvalMetric `json:"ruleEvaluationMetrics,omitempty"`
-	EstimatedWaitMillis  *int             `json:"estimatedWaitMillis,omitempty"`
+	// EstimatedWaitMillis is an integer (in seconds, despite the AWS field
+	// name) or the string "NOT_AVAILABLE" when no estimate exists.
+	EstimatedWaitMillis any `json:"estimatedWaitMillis,omitempty"`
 	GameSessionInfo      *GameSessionInfo `json:"gameSessionInfo,omitempty"`
 	CustomEventData      string           `json:"customEventData,omitempty"`
 	Reason               string           `json:"reason,omitempty"`
@@ -126,6 +132,9 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	switch ev := e.(type) {
 	case mm.EventTicketSearchingStarted:
 		d.Tickets = t.lookupTickets(ev.TicketID())
+		// AWS always includes estimatedWaitMillis on MatchmakingSearching.
+		// fmlocal does not compute wait estimates, so report NOT_AVAILABLE.
+		d.EstimatedWaitMillis = estimatedWaitNotAvailable
 	case mm.EventTicketAssignedToProposal:
 		d.MatchID = string(ev.MatchID())
 		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
