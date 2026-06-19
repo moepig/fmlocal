@@ -186,7 +186,10 @@ func buildStack(t *testing.T, acceptance bool) *stack {
 			}
 			players := make([]notification.PlayerDetail, 0, len(tk.Players()))
 			for _, p := range tk.Players() {
-				players = append(players, notification.PlayerDetail{PlayerID: string(p.ID)})
+				players = append(players, notification.PlayerDetail{
+					PlayerID: string(p.ID),
+					Team:     tk.PlayerTeam(mm.PlayerID(p.ID)),
+				})
 			}
 			return notification.TicketDetail{
 				TicketID:  string(tk.ID()),
@@ -274,6 +277,15 @@ func TestE2E_StandaloneMatch_NoAcceptance(t *testing.T) {
 	require.Len(t, succeeded, 1)
 	assert.ElementsMatch(t, []string{"t1", "t2"}, ticketIDsOf(succeeded[0]))
 	assert.NotEmpty(t, succeeded[0].Detail.MatchID)
+
+	// Each player carries the team it was assigned to (the rule set has red/blue).
+	var teams []string
+	for _, tk := range succeeded[0].Detail.Tickets {
+		for _, p := range tk.Players {
+			teams = append(teams, p.Team)
+		}
+	}
+	assert.ElementsMatch(t, []string{"red", "blue"}, teams)
 }
 
 func TestE2E_AcceptanceFlow(t *testing.T) {

@@ -61,6 +61,17 @@ func TestTicket_AssignToProposalThenComplete(t *testing.T) {
 	assert.Empty(t, tk.PullEvents())
 }
 
+func TestTicket_SetPlayerTeamsRecordsOwnPlayersOnly(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	tk, err := mm.NewTicket("t1", sampleConfig(), []mm.Player{{ID: "p1"}}, now)
+	require.NoError(t, err)
+
+	// A match-wide assignment is passed in; only this ticket's player sticks.
+	tk.SetPlayerTeams(map[string]string{"p1": "red", "p2": "blue"})
+	assert.Equal(t, "red", tk.PlayerTeam("p1"))
+	assert.Equal(t, "", tk.PlayerTeam("p2"))
+}
+
 func TestTicket_InvalidTransitionReturnsError(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	tk, _ := mm.NewTicket("t1", sampleConfig(), []mm.Player{{ID: "p1"}}, now)

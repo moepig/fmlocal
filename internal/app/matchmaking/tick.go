@@ -135,6 +135,18 @@ func toTicketIDs(ss []string) []mm.TicketID {
 	return out
 }
 
+// playerTeams inverts the engine's team->players map into player->team so it
+// can be recorded on individual tickets.
+func playerTeams(teams map[string][]flexi.Player) map[string]string {
+	out := make(map[string]string)
+	for team, players := range teams {
+		for _, p := range players {
+			out[p.ID] = team
+		}
+	}
+	return out
+}
+
 func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationName, before, after []flexi.Proposal, now time.Time) error {
 	tracker := s.tracker(name)
 	seen := map[string]bool{}
@@ -152,6 +164,7 @@ func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationNa
 			matchID = mm.MatchID(s.MatchIDs.NewID())
 			tracker.assign(tids, matchID)
 		}
+		teams := playerTeams(p.Teams)
 		for _, tid := range tids {
 			ticket, err := s.GetTicket(tid)
 			if err != nil || ticket.Status() == mm.StatusRequiresAcceptance {
@@ -160,6 +173,7 @@ func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationNa
 			if err := ticket.AssignToProposal(matchID, now); err != nil {
 				return err
 			}
+			ticket.SetPlayerTeams(teams)
 			if err := s.SaveTicket(ticket); err != nil {
 				return err
 			}
@@ -182,12 +196,14 @@ func (s *Service) finalizeMatches(ctx context.Context, cfg mm.Configuration, eng
 			matchID = mm.MatchID(s.MatchIDs.NewID())
 			tracker.assign(tids, matchID)
 		}
+		teams := playerTeams(m.Teams)
 		acceptanceSettled := false
 		for _, tid := range tids {
 			ticket, err := s.GetTicket(tid)
 			if err != nil {
 				continue
 			}
+			ticket.SetPlayerTeams(teams)
 			if cfg.AcceptanceRequired && ticket.Status() == mm.StatusRequiresAcceptance {
 				acceptanceSettled = true
 			}

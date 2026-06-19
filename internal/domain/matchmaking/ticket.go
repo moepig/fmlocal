@@ -41,6 +41,7 @@ type Ticket struct {
 	cancelByAPI       bool
 	searchingEmitted  bool
 	estimatedWait     *time.Duration
+	playerTeams       map[string]string
 
 	events []Event
 }
@@ -84,6 +85,27 @@ func (t *Ticket) StatusReason() string               { return t.statusReason }
 func (t *Ticket) StatusMessage() string              { return t.statusMessage }
 func (t *Ticket) CancelRequestedByAPI() bool         { return t.cancelByAPI }
 func (t *Ticket) EstimatedWait() *time.Duration      { return t.estimatedWait }
+
+// PlayerTeam returns the team a player was assigned to when the match formed,
+// or "" if no assignment has been recorded (e.g. before a proposal/match).
+func (t *Ticket) PlayerTeam(id PlayerID) string { return t.playerTeams[string(id)] }
+
+// SetPlayerTeams records the team assignment for players in this ticket. The
+// assignment originates from the engine when a proposal or match forms; only
+// entries for the ticket's own players are retained.
+func (t *Ticket) SetPlayerTeams(teams map[string]string) {
+	if len(teams) == 0 {
+		return
+	}
+	if t.playerTeams == nil {
+		t.playerTeams = map[string]string{}
+	}
+	for _, p := range t.players {
+		if team, ok := teams[p.ID]; ok {
+			t.playerTeams[p.ID] = team
+		}
+	}
+}
 
 // PullEvents returns and clears the events accumulated since the last pull.
 func (t *Ticket) PullEvents() []Event {

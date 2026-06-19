@@ -225,7 +225,10 @@ func ticketLookup(svc *appmm.Service) notification.TicketLookup {
 		}
 		players := make([]notification.PlayerDetail, 0, len(t.Players()))
 		for _, p := range t.Players() {
-			players = append(players, notification.PlayerDetail{PlayerID: string(p.ID)})
+			players = append(players, notification.PlayerDetail{
+				PlayerID: string(p.ID),
+				Team:     t.PlayerTeam(mm.PlayerID(p.ID)),
+			})
 		}
 		return notification.TicketDetail{
 			TicketID:  string(t.ID()),
