@@ -173,7 +173,7 @@ func buildSQSBackedStack(t *testing.T, queueURL string, client *sqs.Client) *sqs
 			}
 			return notification.TicketDetail{
 				TicketID:  string(tk.ID()),
-				StartTime: tk.StartTime().UTC().Format(time.RFC3339),
+				StartTime: tk.StartTime().UTC().Format(notification.ISO8601Millis),
 				Players:   players,
 			}, true
 		},

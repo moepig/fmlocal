@@ -27,7 +27,7 @@ func lookupFor(tk *mm.Ticket) notification.TicketLookup {
 		}
 		return notification.TicketDetail{
 			TicketID:  string(tk.ID()),
-			StartTime: tk.StartTime().UTC().Format(time.RFC3339),
+			StartTime: tk.StartTime().UTC().Format(notification.ISO8601Millis),
 			Players:   []notification.PlayerDetail{{PlayerID: string(tk.Players()[0].ID)}},
 		}, true
 	}
@@ -43,6 +43,8 @@ func TestTranslator_RendersSearchingEnvelope(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "aws.gamelift", env.Source)
 	assert.Equal(t, "GameLift Matchmaking Event", env.DetailType)
+	// Timestamps use ISO-8601 with millisecond precision, matching AWS.
+	assert.Equal(t, "2026-04-18T10:00:00.000Z", env.Time)
 	assert.Equal(t, "MatchmakingSearching", env.Detail.Type)
 	require.Len(t, env.Detail.Tickets, 1)
 	assert.Equal(t, "t1", env.Detail.Tickets[0].TicketID)

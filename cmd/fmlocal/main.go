@@ -232,7 +232,7 @@ func ticketLookup(svc *appmm.Service) notification.TicketLookup {
 		}
 		return notification.TicketDetail{
 			TicketID:  string(t.ID()),
-			StartTime: t.StartTime().UTC().Format("2006-01-02T15:04:05Z07:00"),
+			StartTime: t.StartTime().UTC().Format(notification.ISO8601Millis),
 			Players:   players,
 		}, true
 	}

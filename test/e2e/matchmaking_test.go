@@ -193,7 +193,7 @@ func buildStack(t *testing.T, acceptance bool) *stack {
 			}
 			return notification.TicketDetail{
 				TicketID:  string(tk.ID()),
-				StartTime: tk.StartTime().UTC().Format(time.RFC3339),
+				StartTime: tk.StartTime().UTC().Format(notification.ISO8601Millis),
 				Players:   players,
 			}, true
 		},

@@ -7,7 +7,6 @@ package notification
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/moepig/fmlocal/internal/app/ports"
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
@@ -16,6 +15,10 @@ import (
 // estimatedWaitNotAvailable is the sentinel AWS uses for MatchmakingSearching
 // when no wait-time estimate is available.
 const estimatedWaitNotAvailable = "NOT_AVAILABLE"
+
+// ISO8601Millis is the timestamp layout AWS uses in matchmaking events:
+// ISO 8601 with millisecond precision (e.g. 2017-08-09T19:59:09.159Z).
+const ISO8601Millis = "2006-01-02T15:04:05.000Z07:00"
 
 // EventBridgeEnvelope mirrors the on-the-wire shape AWS emits.
 type EventBridgeEnvelope struct {
@@ -108,7 +111,7 @@ func (t *Translator) Render(e mm.Event) (EventBridgeEnvelope, error) {
 		DetailType: "GameLift Matchmaking Event",
 		Source:     "aws.gamelift",
 		Account:    t.settings.AccountID,
-		Time:       e.OccurredAt().UTC().Format(time.RFC3339),
+		Time:       e.OccurredAt().UTC().Format(ISO8601Millis),
 		Region:     t.settings.Region,
 		Resources: []string{fmt.Sprintf(
 			"arn:aws:gamelift:%s:%s:matchmakingconfiguration/%s",
