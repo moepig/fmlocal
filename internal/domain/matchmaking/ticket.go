@@ -96,21 +96,21 @@ func (t *Ticket) PullEvents() []Event {
 // via status.canTransitionTo and records the corresponding domain event.
 
 // AssignToProposal moves a QUEUED/SEARCHING ticket into REQUIRES_ACCEPTANCE
-// when flexi forms a proposal that involves this ticket.
+// when flexi forms a proposal that involves this ticket. The match-level
+// PotentialMatchCreated event is emitted by the application layer, which knows
+// the proposal's full ticket roster.
 func (t *Ticket) AssignToProposal(matchID MatchID, now time.Time) error {
 	if err := t.transition(StatusRequiresAcceptance, now); err != nil {
 		return err
 	}
 	t.matchID = matchID
-	t.recordEvent(EventTicketAssignedToProposal{
-		ticketID: t.id, configName: t.configurationName, matchID: matchID, occurredAt: now,
-	})
 	return nil
 }
 
-// AcceptPlayer records a per-player acceptance; does not change status but
-// emits a PlayerAcceptanceRecorded event so publishers can fan out an AcceptMatch
-// notification. Requires the ticket to currently be in REQUIRES_ACCEPTANCE.
+// RecordPlayerAcceptance validates a per-player acceptance against the ticket's
+// state. It does not change status or record an event: the match-level
+// AcceptMatch notification is emitted by the application layer, which has the
+// match's full ticket roster. Requires the ticket to be in REQUIRES_ACCEPTANCE.
 func (t *Ticket) RecordPlayerAcceptance(playerID PlayerID, accepted bool, now time.Time) error {
 	if t.status != StatusRequiresAcceptance {
 		return fmt.Errorf("%w: ticket %s is not in REQUIRES_ACCEPTANCE", ErrInvalidTransition, t.id)
@@ -118,25 +118,7 @@ func (t *Ticket) RecordPlayerAcceptance(playerID PlayerID, accepted bool, now ti
 	if !t.hasPlayer(playerID) {
 		return fmt.Errorf("%w: %s", ErrPlayerNotInTicket, playerID)
 	}
-	t.recordEvent(EventPlayerAcceptanceRecorded{
-		ticketID:   t.id,
-		configName: t.configurationName,
-		matchID:    t.matchID,
-		playerID:   playerID,
-		accepted:   accepted,
-		occurredAt: now,
-	})
 	return nil
-}
-
-// AcceptanceCompleted finalizes acceptance with the given outcome. Used by
-// the application layer after observing flexi's resolution (all accepted,
-// rejected, or timed out). The status change to the next lifecycle state is
-// performed in separate transitions (MoveToPlacing / MarkFailed / MarkTimedOut).
-func (t *Ticket) AcceptanceCompleted(outcome AcceptanceOutcome, now time.Time) {
-	t.recordEvent(EventAcceptanceCompleted{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, outcome: outcome, occurredAt: now,
-	})
 }
 
 // MoveToPlacing transitions an accepted proposal or direct match into PLACING.
@@ -150,15 +132,13 @@ func (t *Ticket) MoveToPlacing(matchID MatchID, now time.Time) error {
 	return nil
 }
 
-// Complete marks the ticket COMPLETED and emits Succeeded.
+// Complete marks the ticket COMPLETED. The match-level MatchmakingSucceeded
+// event is emitted by the application layer once per match.
 func (t *Ticket) Complete(now time.Time) error {
 	if err := t.transition(StatusCompleted, now); err != nil {
 		return err
 	}
 	t.endTime = now
-	t.recordEvent(EventMatchmakingSucceeded{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, occurredAt: now,
-	})
 	return nil
 }
 

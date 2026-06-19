@@ -16,10 +16,11 @@ import (
 type proposalTracker struct {
 	mu       sync.Mutex
 	matchIDs map[string]mm.MatchID
+	byMatch  map[mm.MatchID][]mm.TicketID
 }
 
 func newProposalTracker() *proposalTracker {
-	return &proposalTracker{matchIDs: map[string]mm.MatchID{}}
+	return &proposalTracker{matchIDs: map[string]mm.MatchID{}, byMatch: map[mm.MatchID][]mm.TicketID{}}
 }
 
 func proposalKey(ids []mm.TicketID) string {
@@ -42,6 +43,17 @@ func (pt *proposalTracker) assign(ids []mm.TicketID, id mm.MatchID) {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 	pt.matchIDs[proposalKey(ids)] = id
+	cp := make([]mm.TicketID, len(ids))
+	copy(cp, ids)
+	pt.byMatch[id] = cp
+}
+
+// ticketsFor returns the full ticket roster recorded for a match, or nil if the
+// match is unknown to the tracker.
+func (pt *proposalTracker) ticketsFor(id mm.MatchID) []mm.TicketID {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	return pt.byMatch[id]
 }
 
 func (s *Service) tracker(name mm.ConfigurationName) *proposalTracker {
@@ -151,25 +163,36 @@ func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationNa
 			if err := s.SaveTicket(ticket); err != nil {
 				return err
 			}
-			s.dispatchEvents(ctx, name, ticket)
 		}
+		// One PotentialMatchCreated per match, carrying every ticket.
+		s.publishEvent(ctx, name, mm.NewPotentialMatchCreated(name, matchID, tids, now))
 	}
 	return nil
 }
 
 func (s *Service) finalizeMatches(ctx context.Context, cfg mm.Configuration, engine *flexi.Matchmaker, matches []flexi.Match, now time.Time) error {
+	tracker := s.tracker(cfg.Name)
 	for _, m := range matches {
 		tids := toTicketIDs(m.TicketIDs)
+		// A match formed via acceptance already has a matchID from
+		// applyNewProposals; a direct (no-acceptance) match gets one here so
+		// the success event carries a stable id.
+		matchID, ok := tracker.known(tids)
+		if !ok {
+			matchID = mm.MatchID(s.MatchIDs.NewID())
+			tracker.assign(tids, matchID)
+		}
+		acceptanceSettled := false
 		for _, tid := range tids {
 			ticket, err := s.GetTicket(tid)
 			if err != nil {
 				continue
 			}
 			if cfg.AcceptanceRequired && ticket.Status() == mm.StatusRequiresAcceptance {
-				ticket.AcceptanceCompleted(mm.AcceptanceAccepted, now)
+				acceptanceSettled = true
 			}
 			if ticket.Status() != mm.StatusPlacing {
-				if err := ticket.MoveToPlacing(ticket.MatchID(), now); err != nil {
+				if err := ticket.MoveToPlacing(matchID, now); err != nil {
 					return err
 				}
 			}
@@ -182,13 +205,22 @@ func (s *Service) finalizeMatches(ctx context.Context, cfg mm.Configuration, eng
 			if err := s.SaveTicket(ticket); err != nil {
 				return err
 			}
-			s.dispatchEvents(ctx, cfg.Name, ticket)
 		}
+		// One AcceptMatchCompleted (if acceptance was required) and one
+		// MatchmakingSucceeded per match, each carrying every ticket.
+		if acceptanceSettled {
+			s.publishEvent(ctx, cfg.Name, mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, mm.AcceptanceAccepted, now))
+		}
+		s.publishEvent(ctx, cfg.Name, mm.NewMatchmakingSucceeded(cfg.Name, matchID, tids, now))
 	}
 	return nil
 }
 
 func (s *Service) syncActiveTickets(ctx context.Context, cfg mm.Configuration, engine *flexi.Matchmaker, now time.Time) error {
+	tracker := s.tracker(cfg.Name)
+	// AcceptMatchCompleted is a match-level event: emit it at most once per
+	// match even though each ticket settles independently in this loop.
+	settled := map[mm.MatchID]bool{}
 	ids := s.ActiveTicketIDsByConfiguration(cfg.Name)
 	for _, id := range ids {
 		ticket, err := s.GetTicket(id)
@@ -203,36 +235,50 @@ func (s *Service) syncActiveTickets(ctx context.Context, cfg mm.Configuration, e
 		if curr == ticket.Status() {
 			continue
 		}
-		if err := s.transitionFromEngine(cfg, ticket, curr, now); err != nil {
+		matchID := ticket.MatchID()
+		outcome, err := s.transitionFromEngine(cfg, ticket, curr, now)
+		if err != nil {
 			return err
 		}
 		if err := s.SaveTicket(ticket); err != nil {
 			return err
+		}
+		if outcome != "" && matchID != "" && !settled[matchID] {
+			settled[matchID] = true
+			tids := tracker.ticketsFor(matchID)
+			if tids == nil {
+				tids = []mm.TicketID{ticket.ID()}
+			}
+			s.publishEvent(ctx, cfg.Name, mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, outcome, now))
 		}
 		s.dispatchEvents(ctx, cfg.Name, ticket)
 	}
 	return nil
 }
 
-func (s *Service) transitionFromEngine(cfg mm.Configuration, ticket *mm.Ticket, curr mm.TicketStatus, now time.Time) error {
+// transitionFromEngine applies the ticket's engine-driven status change and
+// reports the acceptance outcome when a proposal terminally settled (so the
+// caller can emit a single match-level AcceptMatchCompleted). The returned
+// outcome is empty when the transition is not an acceptance settlement.
+func (s *Service) transitionFromEngine(cfg mm.Configuration, ticket *mm.Ticket, curr mm.TicketStatus, now time.Time) (mm.AcceptanceOutcome, error) {
 	prev := ticket.Status()
 	switch curr {
 	case mm.StatusQueued, mm.StatusSearching:
 		ticket.ObserveSearching()
 	case mm.StatusCancelled:
+		var outcome mm.AcceptanceOutcome
 		if prev == mm.StatusRequiresAcceptance {
-			ticket.AcceptanceCompleted(mm.AcceptanceRejected, now)
+			outcome = mm.AcceptanceRejected
 		}
 		if ticket.CancelRequestedByAPI() {
-			return ticket.MarkCancelledByAPI(now)
+			return outcome, ticket.MarkCancelledByAPI(now)
 		}
-		return ticket.MarkCancelledViaReject(now)
+		return outcome, ticket.MarkCancelledViaReject(now)
 	case mm.StatusTimedOut:
 		if prev == mm.StatusRequiresAcceptance {
-			ticket.AcceptanceCompleted(mm.AcceptanceTimedOut, now)
-			return ticket.MarkTimedOut("TimedOut", "Proposal was not accepted within the timeout", now)
+			return mm.AcceptanceTimedOut, ticket.MarkTimedOut("TimedOut", "Proposal was not accepted within the timeout", now)
 		}
-		return ticket.MarkTimedOut("TimedOut", "Matchmaking timed out", now)
+		return "", ticket.MarkTimedOut("TimedOut", "Matchmaking timed out", now)
 	}
-	return nil
+	return "", nil
 }

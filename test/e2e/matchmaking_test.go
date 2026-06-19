@@ -93,6 +93,28 @@ func (s *eventSink) detailTypes() []string {
 	return out
 }
 
+// eventsOfType returns every received envelope whose detail.type matches typ.
+func (s *eventSink) eventsOfType(typ string) []notification.EventBridgeEnvelope {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]notification.EventBridgeEnvelope, 0)
+	for _, e := range s.events {
+		if e.Detail.Type == typ {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// ticketIDsOf collects the ticketIds present in an envelope's detail.tickets.
+func ticketIDsOf(env notification.EventBridgeEnvelope) []string {
+	out := make([]string, 0, len(env.Detail.Tickets))
+	for _, tk := range env.Detail.Tickets {
+		out = append(out, tk.TicketID)
+	}
+	return out
+}
+
 func (s *eventSink) waitFor(t *testing.T, want string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -245,6 +267,13 @@ func TestE2E_StandaloneMatch_NoAcceptance(t *testing.T) {
 	types := st.sink.detailTypes()
 	assert.Contains(t, types, "MatchmakingSearching")
 	assert.Contains(t, types, "MatchmakingSucceeded")
+
+	// One MatchmakingSucceeded for the whole match, carrying both tickets
+	// (AWS emits a single event per match, not one per ticket).
+	succeeded := st.sink.eventsOfType("MatchmakingSucceeded")
+	require.Len(t, succeeded, 1)
+	assert.ElementsMatch(t, []string{"t1", "t2"}, ticketIDsOf(succeeded[0]))
+	assert.NotEmpty(t, succeeded[0].Detail.MatchID)
 }
 
 func TestE2E_AcceptanceFlow(t *testing.T) {
@@ -287,6 +316,14 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 		"MatchmakingSucceeded",
 	} {
 		assert.Truef(t, contains(got, want), "expected event %q in %v", want, got)
+	}
+
+	// Each match-grouping event is emitted once for the whole match and carries
+	// both tickets.
+	for _, typ := range []string{"PotentialMatchCreated", "AcceptMatchCompleted", "MatchmakingSucceeded"} {
+		evs := st.sink.eventsOfType(typ)
+		require.Lenf(t, evs, 1, "expected exactly one %s", typ)
+		assert.ElementsMatchf(t, []string{"t1", "t2"}, ticketIDsOf(evs[0]), "%s tickets", typ)
 	}
 }
 

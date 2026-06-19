@@ -128,14 +128,18 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		d.Tickets = t.lookupTickets(ev.TicketID())
 	case mm.EventTicketAssignedToProposal:
 		d.MatchID = string(ev.MatchID())
-		d.Tickets = t.lookupTickets(ev.TicketID())
+		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
 	case mm.EventPlayerAcceptanceRecorded:
 		d.MatchID = string(ev.MatchID())
-		td := t.lookupTickets(ev.TicketID())
+		td := t.lookupTickets(ev.TicketIDs()...)
+		acted := map[string]bool{}
+		for _, pid := range ev.PlayerIDs() {
+			acted[string(pid)] = true
+		}
 		accepted := ev.Accepted()
 		for i := range td {
 			for j := range td[i].Players {
-				if td[i].Players[j].PlayerID == string(ev.PlayerID()) {
+				if acted[td[i].Players[j].PlayerID] {
 					v := accepted
 					td[i].Players[j].Accepted = &v
 				}
@@ -145,10 +149,10 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	case mm.EventAcceptanceCompleted:
 		d.MatchID = string(ev.MatchID())
 		d.Acceptance = string(ev.Outcome())
-		d.Tickets = t.lookupTickets(ev.TicketID())
+		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
 	case mm.EventMatchmakingSucceeded:
 		d.MatchID = string(ev.MatchID())
-		d.Tickets = t.lookupTickets(ev.TicketID())
+		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
 	case mm.EventMatchmakingFailed:
 		d.MatchID = string(ev.MatchID())
 		d.Reason = ev.Reason()

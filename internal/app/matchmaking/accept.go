@@ -43,6 +43,14 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 	if err := s.SaveTicket(ticket); err != nil {
 		return err
 	}
-	s.dispatchEvents(ctx, ticket.ConfigurationName(), ticket)
+	// AcceptMatch is a match-level event: emit one notification covering every
+	// ticket in the match, flagging the players that just responded.
+	name := ticket.ConfigurationName()
+	matchID := ticket.MatchID()
+	tids := s.tracker(name).ticketsFor(matchID)
+	if tids == nil {
+		tids = []mm.TicketID{ticket.ID()}
+	}
+	s.publishEvent(ctx, name, mm.NewAcceptMatch(name, matchID, tids, cmd.PlayerIDs, cmd.Accepted, s.Clock.Now()))
 	return nil
 }

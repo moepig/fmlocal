@@ -185,15 +185,21 @@ func (s *Service) publisher(name mm.ConfigurationName) ports.EventPublisher {
 }
 
 func (s *Service) dispatchEvents(ctx context.Context, name mm.ConfigurationName, t *mm.Ticket) {
-	pub := s.publisher(name)
 	for _, ev := range t.PullEvents() {
-		if err := pub.Publish(ctx, ev); err != nil {
-			s.logger().Warn("publish event failed",
-				"configuration", name, "event", ev.EventName(), "error", err.Error())
-		} else {
-			s.logger().Debug("publish event",
-				"configuration", name, "event", ev.EventName(), "ticket", t.ID())
-		}
+		s.publishEvent(ctx, name, ev)
+	}
+}
+
+// publishEvent delivers a single event through the configuration's publisher.
+// It is used both for ticket-scoped events (drained via dispatchEvents) and for
+// match-level events constructed directly by the application layer.
+func (s *Service) publishEvent(ctx context.Context, name mm.ConfigurationName, ev mm.Event) {
+	if err := s.publisher(name).Publish(ctx, ev); err != nil {
+		s.logger().Warn("publish event failed",
+			"configuration", name, "event", ev.EventName(), "error", err.Error())
+	} else {
+		s.logger().Debug("publish event",
+			"configuration", name, "event", ev.EventName())
 	}
 }
 

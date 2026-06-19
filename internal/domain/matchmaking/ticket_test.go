@@ -48,20 +48,17 @@ func TestTicket_AssignToProposalThenComplete(t *testing.T) {
 
 	require.NoError(t, tk.AssignToProposal("m-1", now))
 	assert.Equal(t, mm.StatusRequiresAcceptance, tk.Status())
-	evs := tk.PullEvents()
-	require.Len(t, evs, 1)
-	assigned, ok := evs[0].(mm.EventTicketAssignedToProposal)
-	require.True(t, ok)
-	assert.Equal(t, mm.MatchID("m-1"), assigned.MatchID())
+	assert.Equal(t, mm.MatchID("m-1"), tk.MatchID())
+	// PotentialMatchCreated / AcceptMatchCompleted / MatchmakingSucceeded are
+	// match-level events emitted by the application layer, not the aggregate.
+	assert.Empty(t, tk.PullEvents())
 
-	tk.AcceptanceCompleted(mm.AcceptanceAccepted, now)
 	require.NoError(t, tk.MoveToPlacing("m-1", now))
 	assert.Equal(t, mm.StatusPlacing, tk.Status())
 
 	require.NoError(t, tk.Complete(now))
 	assert.Equal(t, mm.StatusCompleted, tk.Status())
-	evs = tk.PullEvents()
-	assert.Len(t, evs, 2, "AcceptanceCompleted + MatchmakingSucceeded queued before Complete")
+	assert.Empty(t, tk.PullEvents())
 }
 
 func TestTicket_InvalidTransitionReturnsError(t *testing.T) {
@@ -80,7 +77,6 @@ func TestTicket_RejectFlow(t *testing.T) {
 	require.NoError(t, tk.AssignToProposal("m-1", now))
 	_ = tk.PullEvents()
 
-	tk.AcceptanceCompleted(mm.AcceptanceRejected, now)
 	require.NoError(t, tk.MarkCancelledViaReject(now))
 	assert.Equal(t, mm.StatusCancelled, tk.Status())
 	evs := tk.PullEvents()
@@ -88,7 +84,9 @@ func TestTicket_RejectFlow(t *testing.T) {
 	for _, e := range evs {
 		types = append(types, e.EventName())
 	}
-	assert.Equal(t, []string{"AcceptMatchCompleted", "MatchmakingFailed"}, types)
+	// AcceptMatchCompleted is emitted by the app layer; the aggregate only
+	// records the ticket-scoped MatchmakingFailed.
+	assert.Equal(t, []string{"MatchmakingFailed"}, types)
 }
 
 func TestTicket_UserCancelFlow(t *testing.T) {
@@ -104,7 +102,7 @@ func TestTicket_UserCancelFlow(t *testing.T) {
 	assert.Equal(t, "MatchmakingCancelled", evs[0].EventName())
 }
 
-func TestTicket_RecordPlayerAcceptanceEmitsAcceptMatch(t *testing.T) {
+func TestTicket_RecordPlayerAcceptanceValidatesWithoutEvent(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	tk, _ := mm.NewTicket("t1", sampleConfig(), []mm.Player{{ID: "p1"}}, now)
 	_ = tk.PullEvents()
@@ -112,11 +110,9 @@ func TestTicket_RecordPlayerAcceptanceEmitsAcceptMatch(t *testing.T) {
 	_ = tk.PullEvents()
 
 	require.NoError(t, tk.RecordPlayerAcceptance("p1", true, now))
-	evs := tk.PullEvents()
-	require.Len(t, evs, 1)
-	acc := evs[0].(mm.EventPlayerAcceptanceRecorded)
-	assert.Equal(t, mm.PlayerID("p1"), acc.PlayerID())
-	assert.True(t, acc.Accepted())
+	// The AcceptMatch notification is emitted by the application layer; the
+	// aggregate method only validates state.
+	assert.Empty(t, tk.PullEvents())
 }
 
 func TestTicket_RecordPlayerAcceptanceOutsideProposalRejected(t *testing.T) {

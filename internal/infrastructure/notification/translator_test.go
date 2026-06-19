@@ -72,45 +72,28 @@ func TestTranslator_AllEventTypes(t *testing.T) {
 		{
 			name: "PotentialMatchCreated",
 			setup: func(tk *mm.Ticket) mm.Event {
-				_ = tk.PullEvents()
-				_ = tk.AssignToProposal("m-1", now)
-				return tk.PullEvents()[0]
+				return mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, now)
 			},
 			wantTyp: "PotentialMatchCreated",
 		},
 		{
 			name: "AcceptMatch",
 			setup: func(tk *mm.Ticket) mm.Event {
-				_ = tk.PullEvents()
-				_ = tk.AssignToProposal("m-1", now)
-				_ = tk.PullEvents()
-				_ = tk.RecordPlayerAcceptance("p1", true, now)
-				return tk.PullEvents()[0]
+				return mm.NewAcceptMatch("cfg", "m-1", []mm.TicketID{tk.ID()}, []mm.PlayerID{"p1"}, true, now)
 			},
 			wantTyp: "AcceptMatch",
 		},
 		{
 			name: "AcceptMatchCompleted",
 			setup: func(tk *mm.Ticket) mm.Event {
-				_ = tk.PullEvents()
-				_ = tk.AssignToProposal("m-1", now)
-				_ = tk.PullEvents()
-				tk.AcceptanceCompleted(mm.AcceptanceAccepted, now)
-				return tk.PullEvents()[0]
+				return mm.NewAcceptMatchCompleted("cfg", "m-1", []mm.TicketID{tk.ID()}, mm.AcceptanceAccepted, now)
 			},
 			wantTyp: "AcceptMatchCompleted",
 		},
 		{
 			name: "MatchmakingSucceeded",
 			setup: func(tk *mm.Ticket) mm.Event {
-				_ = tk.PullEvents()
-				_ = tk.AssignToProposal("m-1", now)
-				_ = tk.PullEvents()
-				_ = tk.MoveToPlacing("m-1", now)
-				_ = tk.Complete(now)
-				evs := tk.PullEvents()
-				// Last event is MatchmakingSucceeded
-				return evs[len(evs)-1]
+				return mm.NewMatchmakingSucceeded("cfg", "m-1", []mm.TicketID{tk.ID()}, now)
 			},
 			wantTyp: "MatchmakingSucceeded",
 		},

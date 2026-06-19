@@ -69,71 +69,106 @@ func (e EventTicketSearchingStarted) ConfigurationName() ConfigurationName    { 
 func (e EventTicketSearchingStarted) OccurredAt() time.Time                   { return e.occurredAt }
 func (e EventTicketSearchingStarted) TicketID() TicketID                      { return e.ticketID }
 
-// EventTicketAssignedToProposal fires when flexi forms a candidate match
-// requiring acceptance and this ticket is part of it.
+// Match-grouping events.
+//
+// PotentialMatchCreated, AcceptMatch, AcceptMatchCompleted and
+// MatchmakingSucceeded describe a whole match, not a single ticket. AWS emits
+// each one once per match with every participating ticket in the payload (see
+// the FlexMatch event docs). They are therefore constructed by the application
+// layer — which knows the full ticket roster of a match — rather than recorded
+// per-ticket by the Ticket aggregate. Each carries the complete set of ticket
+// IDs via TicketIDs().
+
+// EventTicketAssignedToProposal maps to PotentialMatchCreated: flexi has formed
+// a candidate match from the given tickets.
 type EventTicketAssignedToProposal struct {
-	ticketID   TicketID
 	configName ConfigurationName
 	matchID    MatchID
+	ticketIDs  []TicketID
 	occurredAt time.Time
+}
+
+// NewPotentialMatchCreated builds a match-level PotentialMatchCreated event.
+func NewPotentialMatchCreated(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, now time.Time) EventTicketAssignedToProposal {
+	return EventTicketAssignedToProposal{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, occurredAt: now}
 }
 
 func (e EventTicketAssignedToProposal) isMatchmakingEvent()                 {}
 func (e EventTicketAssignedToProposal) EventName() string                    { return "PotentialMatchCreated" }
 func (e EventTicketAssignedToProposal) ConfigurationName() ConfigurationName { return e.configName }
 func (e EventTicketAssignedToProposal) OccurredAt() time.Time                { return e.occurredAt }
-func (e EventTicketAssignedToProposal) TicketID() TicketID                   { return e.ticketID }
+func (e EventTicketAssignedToProposal) TicketIDs() []TicketID                { return e.ticketIDs }
 func (e EventTicketAssignedToProposal) MatchID() MatchID                     { return e.matchID }
 
-// EventPlayerAcceptanceRecorded fires when a player responds Accept or Reject.
+// EventPlayerAcceptanceRecorded maps to AcceptMatch: one or more players in the
+// match responded Accept or Reject. The event carries every ticket in the match
+// and the players whose acceptance this notification reflects.
 type EventPlayerAcceptanceRecorded struct {
-	ticketID   TicketID
 	configName ConfigurationName
 	matchID    MatchID
-	playerID   PlayerID
+	ticketIDs  []TicketID
+	playerIDs  []PlayerID
 	accepted   bool
 	occurredAt time.Time
+}
+
+// NewAcceptMatch builds a match-level AcceptMatch event for the players that
+// just responded with the given acceptance value.
+func NewAcceptMatch(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, playerIDs []PlayerID, accepted bool, now time.Time) EventPlayerAcceptanceRecorded {
+	return EventPlayerAcceptanceRecorded{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, playerIDs: playerIDs, accepted: accepted, occurredAt: now}
 }
 
 func (e EventPlayerAcceptanceRecorded) isMatchmakingEvent()                 {}
 func (e EventPlayerAcceptanceRecorded) EventName() string                    { return "AcceptMatch" }
 func (e EventPlayerAcceptanceRecorded) ConfigurationName() ConfigurationName { return e.configName }
 func (e EventPlayerAcceptanceRecorded) OccurredAt() time.Time                { return e.occurredAt }
-func (e EventPlayerAcceptanceRecorded) TicketID() TicketID                   { return e.ticketID }
+func (e EventPlayerAcceptanceRecorded) TicketIDs() []TicketID                { return e.ticketIDs }
 func (e EventPlayerAcceptanceRecorded) MatchID() MatchID                     { return e.matchID }
-func (e EventPlayerAcceptanceRecorded) PlayerID() PlayerID                   { return e.playerID }
+func (e EventPlayerAcceptanceRecorded) PlayerIDs() []PlayerID                { return e.playerIDs }
 func (e EventPlayerAcceptanceRecorded) Accepted() bool                       { return e.accepted }
 
-// EventAcceptanceCompleted fires when a proposal terminally settles.
+// EventAcceptanceCompleted maps to AcceptMatchCompleted: the match's acceptance
+// phase terminally settled (all accepted, rejected, or timed out).
 type EventAcceptanceCompleted struct {
-	ticketID   TicketID
 	configName ConfigurationName
 	matchID    MatchID
+	ticketIDs  []TicketID
 	outcome    AcceptanceOutcome
 	occurredAt time.Time
+}
+
+// NewAcceptMatchCompleted builds a match-level AcceptMatchCompleted event.
+func NewAcceptMatchCompleted(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, outcome AcceptanceOutcome, now time.Time) EventAcceptanceCompleted {
+	return EventAcceptanceCompleted{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, outcome: outcome, occurredAt: now}
 }
 
 func (e EventAcceptanceCompleted) isMatchmakingEvent()                 {}
 func (e EventAcceptanceCompleted) EventName() string                    { return "AcceptMatchCompleted" }
 func (e EventAcceptanceCompleted) ConfigurationName() ConfigurationName { return e.configName }
 func (e EventAcceptanceCompleted) OccurredAt() time.Time                { return e.occurredAt }
-func (e EventAcceptanceCompleted) TicketID() TicketID                   { return e.ticketID }
+func (e EventAcceptanceCompleted) TicketIDs() []TicketID                { return e.ticketIDs }
 func (e EventAcceptanceCompleted) MatchID() MatchID                     { return e.matchID }
 func (e EventAcceptanceCompleted) Outcome() AcceptanceOutcome           { return e.outcome }
 
-// EventMatchmakingSucceeded fires on terminal success.
+// EventMatchmakingSucceeded maps to MatchmakingSucceeded: the match completed
+// successfully. Carries every ticket in the match.
 type EventMatchmakingSucceeded struct {
-	ticketID   TicketID
 	configName ConfigurationName
 	matchID    MatchID
+	ticketIDs  []TicketID
 	occurredAt time.Time
+}
+
+// NewMatchmakingSucceeded builds a match-level MatchmakingSucceeded event.
+func NewMatchmakingSucceeded(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, now time.Time) EventMatchmakingSucceeded {
+	return EventMatchmakingSucceeded{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, occurredAt: now}
 }
 
 func (e EventMatchmakingSucceeded) isMatchmakingEvent()                 {}
 func (e EventMatchmakingSucceeded) EventName() string                    { return "MatchmakingSucceeded" }
 func (e EventMatchmakingSucceeded) ConfigurationName() ConfigurationName { return e.configName }
 func (e EventMatchmakingSucceeded) OccurredAt() time.Time                { return e.occurredAt }
-func (e EventMatchmakingSucceeded) TicketID() TicketID                   { return e.ticketID }
+func (e EventMatchmakingSucceeded) TicketIDs() []TicketID                { return e.ticketIDs }
 func (e EventMatchmakingSucceeded) MatchID() MatchID                     { return e.matchID }
 
 // EventMatchmakingFailed fires when a proposal is rejected.
