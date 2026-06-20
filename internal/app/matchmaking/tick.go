@@ -286,7 +286,7 @@ func (s *Service) syncActiveTickets(ctx context.Context, cfg mm.Configuration, e
 		if curr == mm.StatusCancelled || curr == mm.StatusTimedOut {
 			captureRuleMetrics(engine, ticket)
 		}
-		outcome, err := s.transitionFromEngine(cfg, ticket, curr, now)
+		outcome, err := s.transitionFromEngine(cfg, engine, ticket, curr, now)
 		if err != nil {
 			return err
 		}
@@ -310,15 +310,20 @@ func (s *Service) syncActiveTickets(ctx context.Context, cfg mm.Configuration, e
 // reports the acceptance outcome when a proposal terminally settled (so the
 // caller can emit a single match-level AcceptMatchCompleted). The returned
 // outcome is empty when the transition is not an acceptance settlement.
-func (s *Service) transitionFromEngine(cfg mm.Configuration, ticket *mm.Ticket, curr mm.TicketStatus, now time.Time) (mm.AcceptanceOutcome, error) {
+func (s *Service) transitionFromEngine(cfg mm.Configuration, engine *flexi.Matchmaker, ticket *mm.Ticket, curr mm.TicketStatus, now time.Time) (mm.AcceptanceOutcome, error) {
 	prev := ticket.Status()
 	switch curr {
 	case mm.StatusQueued, mm.StatusSearching:
 		// A ticket whose players all accepted a proposal that then failed
 		// acceptance (a sibling rejected or timed out) is returned to the pool
-		// by the engine; AWS re-emits MatchmakingSearching for it.
+		// by the engine; AWS re-emits MatchmakingSearching for it and reports a
+		// status reason (ACCEPTANCE_FAILED) on the re-queued ticket.
 		if prev == mm.StatusRequiresAcceptance {
-			return "", ticket.ReturnToSearching(now)
+			reason := ""
+			if r, ok := engine.StatusReason(string(ticket.ID())); ok {
+				reason = string(r)
+			}
+			return "", ticket.ReturnToSearching(reason, now)
 		}
 		ticket.ObserveSearching()
 	case mm.StatusCancelled:

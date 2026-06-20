@@ -109,16 +109,22 @@ func TestTicket_ReturnToSearchingReQueues(t *testing.T) {
 	require.NoError(t, tk.RecordPlayerAcceptance("p1", true, now))
 	_ = tk.PullEvents()
 
-	require.NoError(t, tk.ReturnToSearching(now))
+	require.NoError(t, tk.ReturnToSearching("ACCEPTANCE_FAILED", now))
 	assert.Equal(t, mm.StatusSearching, tk.Status())
 	// The stale proposal association is cleared so the next match starts clean.
 	assert.Equal(t, mm.MatchID(""), tk.MatchID())
 	assert.Empty(t, tk.PlayerAcceptances())
+	// AWS reports a status reason explaining the return to SEARCHING.
+	assert.Equal(t, "ACCEPTANCE_FAILED", tk.StatusReason())
 	// AWS re-emits MatchmakingSearching when a re-queued ticket returns to the
 	// pool after a failed acceptance.
 	evs := tk.PullEvents()
 	require.Len(t, evs, 1)
 	assert.Equal(t, "MatchmakingSearching", evs[0].EventName())
+
+	// A subsequent proposal clears the carried-over status reason.
+	require.NoError(t, tk.AssignToProposal("m-2", now))
+	assert.Empty(t, tk.StatusReason())
 }
 
 func TestTicket_UserCancelFlow(t *testing.T) {

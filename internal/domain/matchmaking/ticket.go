@@ -135,6 +135,9 @@ func (t *Ticket) AssignToProposal(matchID MatchID, now time.Time) error {
 		return err
 	}
 	t.matchID = matchID
+	// Clear any ACCEPTANCE_FAILED reason carried over from a prior re-queue so a
+	// freshly proposed ticket does not report a stale status reason.
+	t.statusReason = ""
 	return nil
 }
 
@@ -241,14 +244,19 @@ func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 // that then failed acceptance (a sibling ticket rejected or timed out). flexi
 // returns such a ticket to the matchmaking pool in SEARCHING; AWS mirrors this
 // by re-emitting MatchmakingSearching, which the recorded
-// EventTicketSearchingStarted renders. The ticket's stale proposal association
-// (matchID, per-player acceptances) is cleared so the next match starts clean.
-func (t *Ticket) ReturnToSearching(now time.Time) error {
+// EventTicketSearchingStarted renders. reason is the engine's status reason
+// (e.g. ACCEPTANCE_FAILED) surfaced on the ticket so DescribeMatchmaking can
+// report why it returned to SEARCHING, matching MatchmakingTicket.StatusReason.
+// The ticket's stale proposal association (matchID, per-player acceptances) is
+// cleared so the next match starts clean.
+func (t *Ticket) ReturnToSearching(reason string, now time.Time) error {
 	if err := t.transition(StatusSearching, now); err != nil {
 		return err
 	}
 	t.matchID = ""
 	t.playerAcceptances = nil
+	t.statusReason = reason
+	t.statusMessage = ""
 	t.recordEvent(EventTicketSearchingStarted{
 		ticketID:   t.id,
 		configName: t.configurationName,

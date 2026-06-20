@@ -224,6 +224,9 @@ func TestService_RejectReQueuesAcceptingTicket(t *testing.T) {
 	// t1 accepted → returned to the pool; t2 rejected → cancelled.
 	assert.Equal(t, mm.StatusSearching, t1.Status())
 	assert.Equal(t, mm.StatusCancelled, t2.Status())
+	// The re-queued ticket carries the engine's status reason, which
+	// DescribeMatchmaking surfaces as MatchmakingTicket.StatusReason.
+	assert.Equal(t, "ACCEPTANCE_FAILED", t1.StatusReason())
 	// Two initial MatchmakingSearching (t1, t2) plus t1's re-queue re-emit = 3;
 	// t2's cancel emits MatchmakingCancelled; AcceptMatchCompleted reports the
 	// rejection once.
