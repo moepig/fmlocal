@@ -50,11 +50,17 @@ func TestE2E_TwoTicketsMatchAndComplete(t *testing.T) {
 	out, err := client.DescribeMatchmaking(ctx, &gamelift.DescribeMatchmakingInput{TicketIds: []string{"alpha", "bravo"}})
 	require.NoError(t, err)
 	require.Len(t, out.TicketList, 2)
+	teams := []string{}
 	for _, tk := range out.TicketList {
 		assert.Equal(t, "COMPLETED", string(tk.Status))
 		assert.NotZero(t, tk.StartTime)
 		assert.NotZero(t, tk.EndTime)
+		// AWS includes each player's team assignment on a COMPLETED ticket.
+		require.Len(t, tk.Players, 1)
+		assert.NotEmpty(t, aws.ToString(tk.Players[0].Team), "completed ticket player must carry a team")
+		teams = append(teams, aws.ToString(tk.Players[0].Team))
 	}
+	assert.ElementsMatch(t, []string{"red", "blue"}, teams)
 }
 
 // TestE2E_StartMatchmakingSucceedsWhenPublisherIsUnreachable proves that a

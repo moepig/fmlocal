@@ -2,6 +2,7 @@ package awsapi
 
 import (
 	"testing"
+	"time"
 
 	"github.com/moepig/flexi"
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
@@ -53,6 +54,32 @@ func TestAttributesToDTO_AllKinds(t *testing.T) {
 	assert.Equal(t, "hi", *dtos["s"].S)
 	assert.Equal(t, []string{"x", "y"}, dtos["sl"].SL)
 	assert.Equal(t, 9.0, dtos["sdm"].SDM["k"])
+}
+
+func TestTicketToDTO_CompletedCarriesTeamAssignments(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	cfg := mm.Configuration{Name: "c1", ARN: "arn:cfg", FlexMatchMode: mm.FlexMatchModeStandalone}
+	tk, err := mm.NewTicket("t1", cfg, []mm.Player{{ID: "p1"}, {ID: "p2"}}, now)
+	require.NoError(t, err)
+
+	// Before any match, no team is assigned (field stays absent).
+	require.Empty(t, ticketToDTO(tk).Players[0].Team)
+
+	// Drive the ticket to COMPLETED with team assignments, mirroring a match.
+	require.NoError(t, tk.AssignToProposal("m-1", now))
+	tk.SetPlayerTeams(map[string]string{"p1": "red", "p2": "blue"})
+	require.NoError(t, tk.MoveToPlacing("m-1", now))
+	require.NoError(t, tk.Complete(now))
+
+	dto := ticketToDTO(tk)
+	require.Equal(t, "COMPLETED", dto.Status)
+	teams := map[string]string{}
+	for _, p := range dto.Players {
+		teams[p.PlayerID] = p.Team
+	}
+	// AWS includes the resulting team on each player of a COMPLETED ticket.
+	assert.Equal(t, "red", teams["p1"])
+	assert.Equal(t, "blue", teams["p2"])
 }
 
 func TestConfigurationToDTO(t *testing.T) {

@@ -78,6 +78,14 @@ func attributesToDTO(in flexi.Attributes) map[string]AttributeValue {
 }
 
 func ticketToDTO(t *mm.Ticket) MatchmakingTicket {
+	players := playersToDTO(t.Players())
+	// Once a match has formed, AWS reports each player's team assignment on the
+	// ticket — for a COMPLETED standalone ticket this is the match result. The
+	// domain records it when the proposal/match forms; surface it here. Team is
+	// omitempty, so it stays absent before any assignment.
+	for i := range players {
+		players[i].Team = t.PlayerTeam(mm.PlayerID(players[i].PlayerID))
+	}
 	dto := MatchmakingTicket{
 		TicketID:          string(t.ID()),
 		ConfigurationName: string(t.ConfigurationName()),
@@ -85,7 +93,7 @@ func ticketToDTO(t *mm.Ticket) MatchmakingTicket {
 		Status:            string(t.Status()),
 		StatusReason:      t.StatusReason(),
 		StatusMessage:     t.StatusMessage(),
-		Players:           playersToDTO(t.Players()),
+		Players:           players,
 	}
 	if !t.StartTime().IsZero() {
 		dto.StartTime = unixSeconds(t.StartTime())
