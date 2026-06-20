@@ -234,6 +234,24 @@ ruleSets:
 	assert.Contains(t, err.Error(), "STANDALONE")
 }
 
+func TestLoadFile_InvalidConfigurationNameRejected(t *testing.T) {
+	path := writeFixture(t, `
+server:
+  awsApiPort: 9080
+  webUIPort: 9081
+matchmakingConfigurations:
+  - name: "bad name!"
+    ruleSetName: 1v1
+    flexMatchMode: STANDALONE
+ruleSets:
+  - name: 1v1
+    path: ruleset.json
+`)
+	_, err := configfile.LoadFile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "name must match")
+}
+
 func TestLoadFile_MissingAWSAPIPort(t *testing.T) {
 	path := writeFixture(t, `
 server:

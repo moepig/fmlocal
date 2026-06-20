@@ -5,11 +5,16 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 	"gopkg.in/yaml.v3"
 )
+
+// configNamePattern mirrors the AWS CreateMatchmakingConfiguration Name
+// constraint (pattern [a-zA-Z0-9-\.]*) so fmlocal rejects names AWS would.
+var configNamePattern = regexp.MustCompile(`^[a-zA-Z0-9.-]*$`)
 
 // PublisherKind enumerates the publisher types fmlocal can build.
 type PublisherKind string
@@ -223,6 +228,9 @@ func (l *Loaded) validate() error {
 		cfg := b.Configuration
 		if cfg.Name == "" {
 			return fmt.Errorf("configfile: matchmaking configuration without a name")
+		}
+		if !configNamePattern.MatchString(string(cfg.Name)) {
+			return fmt.Errorf("configfile: matchmaking %q name must match %s", cfg.Name, configNamePattern)
 		}
 		if cfgNames[cfg.Name] {
 			return fmt.Errorf("configfile: duplicate matchmaking configuration %q", cfg.Name)
