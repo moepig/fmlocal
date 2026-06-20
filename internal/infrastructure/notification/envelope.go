@@ -149,6 +149,14 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		d.MatchID = string(ev.MatchID())
 		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
 		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
+		required := ev.AcceptanceRequired()
+		d.AcceptanceRequired = &required
+		// AWS reports acceptanceTimeout in seconds; only meaningful when
+		// acceptance is required.
+		if required {
+			secs := int(ev.AcceptanceTimeout().Seconds())
+			d.AcceptanceTimeout = &secs
+		}
 	case mm.EventPlayerAcceptanceRecorded:
 		d.MatchID = string(ev.MatchID())
 		td := t.lookupTickets(ev.TicketIDs()...)

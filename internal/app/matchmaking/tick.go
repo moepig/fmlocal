@@ -88,7 +88,7 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 		return fmt.Errorf("matchmaking: tick: %w", err)
 	}
 	after := engine.PendingAcceptances()
-	if err := s.applyNewProposals(ctx, name, before, after, now); err != nil {
+	if err := s.applyNewProposals(ctx, cfg, before, after, now); err != nil {
 		return err
 	}
 	if err := s.finalizeMatches(ctx, cfg, engine, matches, now); err != nil {
@@ -169,7 +169,8 @@ func captureRuleMetrics(engine *flexi.Matchmaker, ticket *mm.Ticket) {
 	}
 }
 
-func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationName, before, after []flexi.Proposal, now time.Time) error {
+func (s *Service) applyNewProposals(ctx context.Context, cfg mm.Configuration, before, after []flexi.Proposal, now time.Time) error {
+	name := cfg.Name
 	tracker := s.tracker(name)
 	seen := map[string]bool{}
 	for _, p := range before {
@@ -200,9 +201,9 @@ func (s *Service) applyNewProposals(ctx context.Context, name mm.ConfigurationNa
 				return err
 			}
 		}
-		// One PotentialMatchCreated per match, carrying every ticket and the
-		// search's rule-evaluation metrics.
-		s.publishEvent(ctx, name, mm.NewPotentialMatchCreated(name, matchID, tids, toRuleMetrics(p.RuleEvaluationMetrics), now))
+		// One PotentialMatchCreated per match, carrying every ticket, the
+		// search's rule-evaluation metrics, and the config's acceptance policy.
+		s.publishEvent(ctx, name, mm.NewPotentialMatchCreated(name, matchID, tids, toRuleMetrics(p.RuleEvaluationMetrics), cfg.AcceptanceRequired, cfg.AcceptanceTimeout, now))
 	}
 	return nil
 }

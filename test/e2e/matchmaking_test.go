@@ -370,6 +370,12 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 	}
 	require.NotNil(t, fair, "FairSkill metric present")
 	assert.GreaterOrEqual(t, fair.PassedCount, 1)
+
+	// With acceptance enabled, PotentialMatchCreated advertises the policy.
+	require.NotNil(t, pmc.Detail.AcceptanceRequired)
+	assert.True(t, *pmc.Detail.AcceptanceRequired)
+	require.NotNil(t, pmc.Detail.AcceptanceTimeout)
+	assert.Greater(t, *pmc.Detail.AcceptanceTimeout, 0)
 }
 
 func TestE2E_StopMatchmakingCancels(t *testing.T) {

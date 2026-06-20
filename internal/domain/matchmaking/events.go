@@ -91,16 +91,28 @@ func (e EventTicketSearchingStarted) TicketID() TicketID                      { 
 // EventTicketAssignedToProposal maps to PotentialMatchCreated: flexi has formed
 // a candidate match from the given tickets.
 type EventTicketAssignedToProposal struct {
-	configName  ConfigurationName
-	matchID     MatchID
-	ticketIDs   []TicketID
-	ruleMetrics []RuleEvaluationMetric
-	occurredAt  time.Time
+	configName         ConfigurationName
+	matchID            MatchID
+	ticketIDs          []TicketID
+	ruleMetrics        []RuleEvaluationMetric
+	acceptanceRequired bool
+	acceptanceTimeout  time.Duration
+	occurredAt         time.Time
 }
 
 // NewPotentialMatchCreated builds a match-level PotentialMatchCreated event.
-func NewPotentialMatchCreated(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, ruleMetrics []RuleEvaluationMetric, now time.Time) EventTicketAssignedToProposal {
-	return EventTicketAssignedToProposal{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, ruleMetrics: ruleMetrics, occurredAt: now}
+// acceptanceRequired/acceptanceTimeout come from the matchmaking configuration
+// so consumers learn whether (and how long) they must accept the proposal.
+func NewPotentialMatchCreated(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, ruleMetrics []RuleEvaluationMetric, acceptanceRequired bool, acceptanceTimeout time.Duration, now time.Time) EventTicketAssignedToProposal {
+	return EventTicketAssignedToProposal{
+		configName:         cfg,
+		matchID:            matchID,
+		ticketIDs:          ticketIDs,
+		ruleMetrics:        ruleMetrics,
+		acceptanceRequired: acceptanceRequired,
+		acceptanceTimeout:  acceptanceTimeout,
+		occurredAt:         now,
+	}
 }
 
 func (e EventTicketAssignedToProposal) isMatchmakingEvent()                 {}
@@ -110,6 +122,8 @@ func (e EventTicketAssignedToProposal) OccurredAt() time.Time                { r
 func (e EventTicketAssignedToProposal) TicketIDs() []TicketID                { return e.ticketIDs }
 func (e EventTicketAssignedToProposal) MatchID() MatchID                     { return e.matchID }
 func (e EventTicketAssignedToProposal) RuleMetrics() []RuleEvaluationMetric  { return e.ruleMetrics }
+func (e EventTicketAssignedToProposal) AcceptanceRequired() bool             { return e.acceptanceRequired }
+func (e EventTicketAssignedToProposal) AcceptanceTimeout() time.Duration     { return e.acceptanceTimeout }
 
 // EventPlayerAcceptanceRecorded maps to AcceptMatch: one or more players in the
 // match responded Accept or Reject. The event carries every ticket in the match

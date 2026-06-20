@@ -86,7 +86,7 @@ func TestTranslator_AllEventTypes(t *testing.T) {
 		{
 			name: "PotentialMatchCreated",
 			setup: func(tk *mm.Ticket) mm.Event {
-				return mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, nil, now)
+				return mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, nil, true, 90*time.Second, now)
 			},
 			wantTyp: "PotentialMatchCreated",
 		},
@@ -202,7 +202,7 @@ func TestTranslator_RendersRuleEvaluationMetrics(t *testing.T) {
 
 	t.Run("PotentialMatchCreated", func(t *testing.T) {
 		tk := makeTicket(t)
-		ev := mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, metrics, now)
+		ev := mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, metrics, true, 90*time.Second, now)
 		assertFairSkill(t, render(ev, tk))
 	})
 	t.Run("MatchmakingTimedOut", func(t *testing.T) {
@@ -219,6 +219,32 @@ func TestTranslator_RendersRuleEvaluationMetrics(t *testing.T) {
 		tk.RequestCancel()
 		require.NoError(t, tk.MarkCancelledByAPI(now))
 		assertFairSkill(t, render(tk.PullEvents()[0], tk))
+	})
+}
+
+func TestTranslator_PotentialMatchCreatedCarriesAcceptancePolicy(t *testing.T) {
+	now := time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC)
+	tk := makeTicket(t)
+	tr := notification.NewTranslator(idgen.NewSequence("e-"),
+		notification.EnvelopeSettings{Region: "us-east-1", AccountID: "000000000000"}, lookupFor(tk))
+
+	t.Run("acceptance required emits required+timeout in seconds", func(t *testing.T) {
+		ev := mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, nil, true, 600*time.Second, now)
+		env, err := tr.Render(ev)
+		require.NoError(t, err)
+		require.NotNil(t, env.Detail.AcceptanceRequired)
+		assert.True(t, *env.Detail.AcceptanceRequired)
+		require.NotNil(t, env.Detail.AcceptanceTimeout)
+		assert.Equal(t, 600, *env.Detail.AcceptanceTimeout)
+	})
+
+	t.Run("acceptance not required omits timeout", func(t *testing.T) {
+		ev := mm.NewPotentialMatchCreated("cfg", "m-1", []mm.TicketID{tk.ID()}, nil, false, 0, now)
+		env, err := tr.Render(ev)
+		require.NoError(t, err)
+		require.NotNil(t, env.Detail.AcceptanceRequired)
+		assert.False(t, *env.Detail.AcceptanceRequired)
+		assert.Nil(t, env.Detail.AcceptanceTimeout)
 	})
 }
 
