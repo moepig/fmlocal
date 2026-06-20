@@ -280,6 +280,17 @@ func TestE2E_StandaloneMatch_NoAcceptance(t *testing.T) {
 	assert.Contains(t, types, "MatchmakingSearching")
 	assert.Contains(t, types, "MatchmakingSucceeded")
 
+	// AWS emits PotentialMatchCreated for every new potential match, even when
+	// acceptance is not required. Here it must advertise acceptanceRequired=false
+	// and omit acceptanceTimeout.
+	assert.Contains(t, types, "PotentialMatchCreated")
+	pmc := st.sink.eventsOfType("PotentialMatchCreated")
+	require.Len(t, pmc, 1)
+	assert.ElementsMatch(t, []string{"t1", "t2"}, ticketIDsOf(pmc[0]))
+	require.NotNil(t, pmc[0].Detail.AcceptanceRequired)
+	assert.False(t, *pmc[0].Detail.AcceptanceRequired)
+	assert.Nil(t, pmc[0].Detail.AcceptanceTimeout)
+
 	// One MatchmakingSucceeded for the whole match, carrying both tickets
 	// (AWS emits a single event per match, not one per ticket).
 	succeeded := st.sink.eventsOfType("MatchmakingSucceeded")

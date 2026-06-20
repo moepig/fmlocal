@@ -216,6 +216,7 @@ func (s *Service) finalizeMatches(ctx context.Context, cfg mm.Configuration, eng
 		// applyNewProposals; a direct (no-acceptance) match gets one here so
 		// the success event carries a stable id.
 		matchID, ok := tracker.known(tids)
+		directMatch := !ok
 		if !ok {
 			matchID = mm.MatchID(s.MatchIDs.NewID())
 			tracker.assign(tids, matchID)
@@ -245,6 +246,12 @@ func (s *Service) finalizeMatches(ctx context.Context, cfg mm.Configuration, eng
 			if err := s.SaveTicket(ticket); err != nil {
 				return err
 			}
+		}
+		// A direct (no-acceptance) match never passed through applyNewProposals,
+		// so emit its PotentialMatchCreated here. AWS emits this event for all
+		// new potential matches regardless of whether acceptance is required.
+		if directMatch {
+			s.publishEvent(ctx, cfg.Name, mm.NewPotentialMatchCreated(cfg.Name, matchID, tids, toRuleMetrics(m.RuleEvaluationMetrics), cfg.AcceptanceRequired, cfg.AcceptanceTimeout, now))
 		}
 		// One AcceptMatchCompleted (if acceptance was required) and one
 		// MatchmakingSucceeded per match, each carrying every ticket.
