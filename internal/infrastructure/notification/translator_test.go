@@ -220,6 +220,15 @@ func TestTranslator_RendersRuleEvaluationMetrics(t *testing.T) {
 		require.NoError(t, tk.MarkCancelledByAPI(now))
 		assertFairSkill(t, render(tk.PullEvents()[0], tk))
 	})
+	t.Run("MatchmakingFailed", func(t *testing.T) {
+		tk := makeTicket(t)
+		_ = tk.PullEvents()
+		require.NoError(t, tk.AssignToProposal("m-1", now))
+		require.NoError(t, tk.MoveToPlacing("m-1", now))
+		tk.SetRuleMetrics(metrics)
+		require.NoError(t, tk.MarkFailed("Rejected", "rejected", now))
+		assertFairSkill(t, render(tk.PullEvents()[0], tk))
+	})
 }
 
 func TestTranslator_PotentialMatchCreatedCarriesAcceptancePolicy(t *testing.T) {

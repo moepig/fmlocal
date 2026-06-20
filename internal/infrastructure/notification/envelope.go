@@ -186,6 +186,7 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		d.Reason = ev.Reason()
 		d.Message = ev.Message()
 		d.Tickets = t.lookupTickets(ev.TicketID())
+		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
 	case mm.EventMatchmakingTimedOut:
 		d.MatchID = string(ev.MatchID())
 		d.Reason = ev.Reason()

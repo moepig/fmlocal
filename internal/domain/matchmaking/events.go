@@ -198,12 +198,13 @@ func (e EventMatchmakingSucceeded) MatchID() MatchID                     { retur
 
 // EventMatchmakingFailed fires when a proposal is rejected.
 type EventMatchmakingFailed struct {
-	ticketID   TicketID
-	configName ConfigurationName
-	matchID    MatchID
-	reason     string
-	message    string
-	occurredAt time.Time
+	ticketID    TicketID
+	configName  ConfigurationName
+	matchID     MatchID
+	reason      string
+	message     string
+	ruleMetrics []RuleEvaluationMetric
+	occurredAt  time.Time
 }
 
 func (e EventMatchmakingFailed) isMatchmakingEvent()                 {}
@@ -214,6 +215,7 @@ func (e EventMatchmakingFailed) TicketID() TicketID                   { return e
 func (e EventMatchmakingFailed) MatchID() MatchID                     { return e.matchID }
 func (e EventMatchmakingFailed) Reason() string                       { return e.reason }
 func (e EventMatchmakingFailed) Message() string                      { return e.message }
+func (e EventMatchmakingFailed) RuleMetrics() []RuleEvaluationMetric  { return e.ruleMetrics }
 
 // EventMatchmakingTimedOut fires on request or acceptance timeout.
 type EventMatchmakingTimedOut struct {

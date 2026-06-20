@@ -181,7 +181,7 @@ func (t *Ticket) MarkFailed(reason, message string, now time.Time) error {
 	t.statusReason = reason
 	t.statusMessage = message
 	t.recordEvent(EventMatchmakingFailed{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: reason, message: message, occurredAt: now,
+		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: reason, message: message, ruleMetrics: t.ruleMetrics, occurredAt: now,
 	})
 	return nil
 }
@@ -212,7 +212,7 @@ func (t *Ticket) MarkCancelledViaReject(now time.Time) error {
 	t.statusReason = "Rejected"
 	t.statusMessage = "Proposal was rejected"
 	t.recordEvent(EventMatchmakingFailed{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: "Rejected", message: "Proposal was rejected", occurredAt: now,
+		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: "Rejected", message: "Proposal was rejected", ruleMetrics: t.ruleMetrics, occurredAt: now,
 	})
 	return nil
 }
