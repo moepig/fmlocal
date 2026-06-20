@@ -26,24 +26,27 @@ Regardless of the transport, the body delivered to a listener is the same AWS Ev
   ],
   "detail": {
     "type": "MatchmakingSucceeded",
-    "tickets": [ { "ticketId": "...", "players": [ { "playerId": "..." } ] } ],
-    "matchId": "..."
+    "tickets": [ { "ticketId": "...", "players": [ { "playerId": "...", "team": "..." } ] } ],
+    "matchId": "...",
+    "gameSessionInfo": { "players": [ { "playerId": "...", "team": "..." } ], "matchId": "..." }
   }
 }
 ```
 
-`detail.type` is the domain event name. fmlocal emits eight of them, matching the events real GameLift produces:
+Every event carries a `gameSessionInfo` block whose `players` array is the match roster flattened across `tickets[]`. In STANDALONE mode no game session is created, so the connection fields (`ipAddress`, `port`, `gameSessionArn`, …) and `playerSessionId` are legitimately absent.
+
+`detail.type` is the domain event name. fmlocal defines eight, matching the events real GameLift produces:
 
 | Event name               | Emitted when                                                              |
 |--------------------------|---------------------------------------------------------------------------|
-| `MatchmakingSearching`   | `StartMatchmaking` creates a ticket and hands it to the engine.           |
-| `PotentialMatchCreated`  | The engine proposes a match and tickets move to `PLACING` (or `REQUIRES_ACCEPTANCE` when acceptance is required). |
+| `MatchmakingSearching`   | `StartMatchmaking` creates a ticket, **or** a fully-accepted ticket returns to the pool after a proposed match fails acceptance (re-emitted, carrying `StatusReason`). |
+| `PotentialMatchCreated`  | The engine proposes a match and tickets move to `PLACING` (or `REQUIRES_ACCEPTANCE` when acceptance is required); carries `acceptanceRequired` / `acceptanceTimeout`. |
 | `AcceptMatch`            | A player records `ACCEPT` / `REJECT` via `AcceptMatch`.                    |
-| `AcceptMatchCompleted`   | All players have responded (or the acceptance window timed out) and the proposal's acceptance phase is closed. |
+| `AcceptMatchCompleted`   | The acceptance phase settled — every player accepted (`Accepted`), a player rejected (`Rejected`), or the acceptance window elapsed (`TimedOut`). |
 | `MatchmakingSucceeded`   | A proposal is finalized; every involved ticket moves to `COMPLETED`.      |
-| `MatchmakingFailed`      | Acceptance failed for at least one player and the proposal collapsed.      |
-| `MatchmakingTimedOut`    | `requestTimeoutSeconds` elapsed before the ticket could match, or the acceptance timeout elapsed. |
-| `MatchmakingCancelled`   | `StopMatchmaking` cancelled the ticket.                                    |
+| `MatchmakingFailed`      | A queue-placement / internal failure. AWS reserves this for those cases and STANDALONE never hits them, so fmlocal does not emit it at runtime — it stays a valid `onlyEvents` name. Acceptance failures use `MatchmakingCancelled` instead (mirroring AWS, where the `CANCELLED` ticket status covers a proposed match players failed to accept). |
+| `MatchmakingTimedOut`    | The request-level `requestTimeoutSeconds` elapsed before the ticket could match. An acceptance-timeout is **not** a `TIMED_OUT` outcome (see `MatchmakingCancelled`). |
+| `MatchmakingCancelled`   | `StopMatchmaking` cancelled the ticket, **or** a proposal failed acceptance — the ticket that rejected or never responded is cancelled while every fully-accepted ticket returns to `SEARCHING`. |
 
 The detail fields populated per event type are implemented in `internal/infrastructure/notification/envelope.go`.
 

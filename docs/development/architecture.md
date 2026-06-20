@@ -41,7 +41,7 @@ The vocabulary of matchmaking: `Ticket` aggregate (state machine + event recorde
 
 The domain owns two invariants:
 
-1. **State transitions.** `TicketStatus.canTransitionTo` enumerates the allowed edges. `Ticket` never moves to a status that the state machine rejects. The application layer cannot bypass this — every mutation goes through an intent-revealing method (`AssignToProposal`, `MoveToPlacing`, `MarkFailed`, …).
+1. **State transitions.** `TicketStatus.canTransitionTo` enumerates the allowed edges. `Ticket` never moves to a status that the state machine rejects. The application layer cannot bypass this — every mutation goes through an intent-revealing method (`AssignToProposal`, `MoveToPlacing`, `MarkCancelledByAcceptanceFailure`, `ReturnToSearching`, …).
 2. **Event emission.** Each transition records the corresponding domain event into an internal buffer. The application layer pulls events after a mutation and hands them to a publisher; the domain does not know what a publisher is.
 
 `Player`, `Attribute`, `Attributes` are Go type aliases to the corresponding types in the [flexi] engine. fmlocal uses flexi end-to-end, so there is no separate domain `Player` struct — the alias keeps call sites domain-flavored without paying a translation cost.

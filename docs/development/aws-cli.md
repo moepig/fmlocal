@@ -135,7 +135,7 @@ aws gamelift accept-match \
   --acceptance-type ACCEPT
 ```
 
-After both accepts, the tickets advance to `PLACING` and then `COMPLETED`. If any player sends `--acceptance-type REJECT`, all tickets in that proposal are moved to the `CANCELLED`/`FAILED` terminal states and a `MatchmakingFailed` event is emitted.
+After both accepts, the tickets advance to `PLACING` and then `COMPLETED`. If any player sends `--acceptance-type REJECT` (or the acceptance window elapses), the proposal fails acceptance: the ticket that rejected or never responded moves to `CANCELLED` and emits `MatchmakingCancelled`, while every ticket whose players had all accepted returns to `SEARCHING` (re-emitting `MatchmakingSearching`) to be re-matched. A single match-level `AcceptMatchCompleted` reports the outcome (`Rejected` or `TimedOut`). This mirrors AWS — `TIMED_OUT` and `MatchmakingFailed` are not used for acceptance failures.
 
 ## Stop a ticket
 
