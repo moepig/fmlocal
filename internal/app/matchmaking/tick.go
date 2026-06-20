@@ -56,6 +56,22 @@ func (pt *proposalTracker) ticketsFor(id mm.MatchID) []mm.TicketID {
 	return pt.byMatch[id]
 }
 
+// forget drops a match's bookkeeping once it has terminally settled — either it
+// succeeded or its acceptance failed. Without this the tracker grows unbounded
+// for a long-running server, and a later proposal with the same ticket roster
+// would resolve via known() to the dead match's id instead of receiving a fresh
+// one (AWS issues a new MatchId per potential match).
+func (pt *proposalTracker) forget(id mm.MatchID) {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	ids, ok := pt.byMatch[id]
+	if !ok {
+		return
+	}
+	delete(pt.matchIDs, proposalKey(ids))
+	delete(pt.byMatch, id)
+}
+
 func (s *Service) tracker(name mm.ConfigurationName) *proposalTracker {
 	s.trackersOnce.Do(func() { s.trackers = map[mm.ConfigurationName]*proposalTracker{} })
 	s.trackersMu.Lock()
@@ -262,6 +278,9 @@ func (s *Service) finalizeMatches(cfg mm.Configuration, engine *flexi.Matchmaker
 			batch.add(mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, mm.AcceptanceAccepted, now))
 		}
 		batch.add(mm.NewMatchmakingSucceeded(cfg.Name, matchID, tids, now))
+		// The match has succeeded and will never be referenced again; release its
+		// tracker entry.
+		tracker.forget(matchID)
 	}
 	return nil
 }
@@ -303,6 +322,9 @@ func (s *Service) syncActiveTickets(cfg mm.Configuration, engine *flexi.Matchmak
 				tids = []mm.TicketID{ticket.ID()}
 			}
 			batch.add(mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, outcome, now))
+			// The proposal's acceptance failed terminally; release its tracker
+			// entry so a re-proposal of the same roster gets a fresh match id.
+			tracker.forget(matchID)
 		}
 		batch.addTicket(ticket)
 	}
