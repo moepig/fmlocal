@@ -23,6 +23,20 @@ var handlers = map[string]handler{
 	"ValidateMatchmakingRuleSet":        (*Server).handleValidateRuleSet,
 }
 
+// wireFormat captures the encoding-specific output behavior shared by the JSON
+// (aws-json-1.1) and CBOR (rpc-v2-cbor) dispatch paths. serve drives the common
+// flow — handler lookup, execution, error classification, request logging — and
+// defers to the format only for rendering the error or success response.
+type wireFormat struct {
+	writeErr func(*APIError, http.ResponseWriter)
+	writeOK  func(*Server, http.ResponseWriter, string, any)
+}
+
+var (
+	jsonFormat = wireFormat{writeErr: (*APIError).write, writeOK: (*Server).writeJSONResponse}
+	cborFormat = wireFormat{writeErr: (*APIError).writeCBOR, writeOK: (*Server).writeCBORResponse}
+)
+
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	target := r.Header.Get("X-Amz-Target")
@@ -36,37 +50,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		newInvalidRequest("read request body: %v", err).write(w)
 		return
 	}
-	h, ok := handlers[action]
-	if !ok {
-		newUnknownOperation("unknown action %q", action).write(w)
-		return
-	}
-	out, err := h(s, r, body)
-	if err != nil {
-		var apiErr *APIError
-		if errors.As(err, &apiErr) {
-			s.logger.Debug("api request", "action", action, "status", apiErr.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
-			apiErr.write(w)
-			return
-		}
-		if mapped := translateDomainError(err); mapped != nil {
-			s.logger.Debug("api request", "action", action, "status", mapped.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
-			mapped.write(w)
-			return
-		}
-		s.logger.Error("handler error", "action", action, "err", err.Error())
-		newInternal("handler %q failed: %v", action, err).write(w)
-		return
-	}
-	s.logger.Debug("api request", "action", action, "status", http.StatusOK, "duration_ms", time.Since(start).Milliseconds())
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.Header().Set("smithy-protocol", "aws-json-1.1")
-	w.WriteHeader(http.StatusOK)
-	if out == nil {
-		_, _ = w.Write([]byte("{}"))
-		return
-	}
-	_ = json.NewEncoder(w).Encode(out)
+	s.serve(w, r, action, body, start, jsonFormat)
 }
 
 func (s *Server) dispatchCBOR(w http.ResponseWriter, r *http.Request) {
@@ -91,29 +75,59 @@ func (s *Server) dispatchCBOR(w http.ResponseWriter, r *http.Request) {
 		newInvalidRequest("convert cbor body: %v", err).writeCBOR(w)
 		return
 	}
+	s.serve(w, r, action, jsonBody, start, cborFormat)
+}
+
+// serve runs the decoded request against its handler and renders the result
+// through the given wire format. body is always JSON-encoded here; the CBOR path
+// converts to JSON before calling so handlers stay format-agnostic.
+func (s *Server) serve(w http.ResponseWriter, r *http.Request, action string, body []byte, start time.Time, f wireFormat) {
 	h, ok := handlers[action]
 	if !ok {
-		newUnknownOperation("unknown action %q", action).writeCBOR(w)
+		f.writeErr(newUnknownOperation("unknown action %q", action), w)
 		return
 	}
-	out, err := h(s, r, jsonBody)
+	out, err := h(s, r, body)
 	if err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
-			s.logger.Debug("api request", "action", action, "status", apiErr.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
-			apiErr.writeCBOR(w)
+			s.logRequest(action, apiErr.HTTPStatus, start)
+			f.writeErr(apiErr, w)
 			return
 		}
 		if mapped := translateDomainError(err); mapped != nil {
-			s.logger.Debug("api request", "action", action, "status", mapped.HTTPStatus, "duration_ms", time.Since(start).Milliseconds())
-			mapped.writeCBOR(w)
+			s.logRequest(action, mapped.HTTPStatus, start)
+			f.writeErr(mapped, w)
 			return
 		}
 		s.logger.Error("handler error", "action", action, "err", err.Error())
-		newInternal("handler %q failed: %v", action, err).writeCBOR(w)
+		f.writeErr(newInternal("handler %q failed: %v", action, err), w)
 		return
 	}
-	s.logger.Debug("api request", "action", action, "status", http.StatusOK, "duration_ms", time.Since(start).Milliseconds())
+	s.logRequest(action, http.StatusOK, start)
+	f.writeOK(s, w, action, out)
+}
+
+func (s *Server) logRequest(action string, status int, start time.Time) {
+	s.logger.Debug("api request", "action", action, "status", status, "duration_ms", time.Since(start).Milliseconds())
+}
+
+// writeJSONResponse renders a successful handler result as aws-json-1.1. action
+// is unused but kept for symmetry with writeCBORResponse so both satisfy
+// wireFormat.writeOK.
+func (s *Server) writeJSONResponse(w http.ResponseWriter, _ string, out any) {
+	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+	w.Header().Set("smithy-protocol", "aws-json-1.1")
+	w.WriteHeader(http.StatusOK)
+	if out == nil {
+		_, _ = w.Write([]byte("{}"))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// writeCBORResponse renders a successful handler result as rpc-v2-cbor.
+func (s *Server) writeCBORResponse(w http.ResponseWriter, action string, out any) {
 	w.Header().Set("Content-Type", "application/cbor")
 	w.Header().Set("smithy-protocol", "rpc-v2-cbor")
 	w.WriteHeader(http.StatusOK)
