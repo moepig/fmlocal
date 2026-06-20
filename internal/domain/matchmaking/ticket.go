@@ -42,6 +42,7 @@ type Ticket struct {
 	searchingEmitted  bool
 	estimatedWait     *time.Duration
 	playerTeams       map[string]string
+	playerAcceptances map[string]bool
 	ruleMetrics       []RuleEvaluationMetric
 
 	events []Event
@@ -137,10 +138,12 @@ func (t *Ticket) AssignToProposal(matchID MatchID, now time.Time) error {
 	return nil
 }
 
-// RecordPlayerAcceptance validates a per-player acceptance against the ticket's
-// state. It does not change status or record an event: the match-level
+// RecordPlayerAcceptance records a per-player acceptance decision against the
+// ticket's state. It does not change status or record an event: the match-level
 // AcceptMatch notification is emitted by the application layer, which has the
-// match's full ticket roster. Requires the ticket to be in REQUIRES_ACCEPTANCE.
+// match's full ticket roster. The decision is retained so subsequent AcceptMatch
+// events can report the cumulative acceptance status of every player, matching
+// AWS. Requires the ticket to be in REQUIRES_ACCEPTANCE.
 func (t *Ticket) RecordPlayerAcceptance(playerID PlayerID, accepted bool, now time.Time) error {
 	if t.status != StatusRequiresAcceptance {
 		return fmt.Errorf("%w: ticket %s is not in REQUIRES_ACCEPTANCE", ErrInvalidTransition, t.id)
@@ -148,7 +151,21 @@ func (t *Ticket) RecordPlayerAcceptance(playerID PlayerID, accepted bool, now ti
 	if !t.hasPlayer(playerID) {
 		return fmt.Errorf("%w: %s", ErrPlayerNotInTicket, playerID)
 	}
+	if t.playerAcceptances == nil {
+		t.playerAcceptances = map[string]bool{}
+	}
+	t.playerAcceptances[string(playerID)] = accepted
 	return nil
+}
+
+// PlayerAcceptances returns the per-player acceptance decisions recorded so far
+// (playerID -> accepted). A player absent from the map has not yet responded.
+func (t *Ticket) PlayerAcceptances() map[PlayerID]bool {
+	out := make(map[PlayerID]bool, len(t.playerAcceptances))
+	for id, accepted := range t.playerAcceptances {
+		out[PlayerID(id)] = accepted
+	}
+	return out
 }
 
 // MoveToPlacing transitions an accepted proposal or direct match into PLACING.

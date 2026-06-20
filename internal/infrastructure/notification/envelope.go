@@ -160,16 +160,12 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	case mm.EventPlayerAcceptanceRecorded:
 		d.MatchID = string(ev.MatchID())
 		td := t.lookupTickets(ev.TicketIDs()...)
-		acted := map[string]bool{}
-		for _, pid := range ev.PlayerIDs() {
-			acted[string(pid)] = true
-		}
-		accepted := ev.Accepted()
+		acceptances := ev.Acceptances()
 		for i := range td {
 			for j := range td[i].Players {
-				if acted[td[i].Players[j].PlayerID] {
-					v := accepted
-					td[i].Players[j].Accepted = &v
+				if v, ok := acceptances[mm.PlayerID(td[i].Players[j].PlayerID)]; ok {
+					accepted := v
+					td[i].Players[j].Accepted = &accepted
 				}
 			}
 		}

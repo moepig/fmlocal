@@ -546,21 +546,30 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 		gsiKeys:        []string{"players"},
 	}
 	acceptedTrue := map[string]bool{}
+	maxAcceptedInOneEvent := 0
 	for _, env := range accepts {
 		assertEnvelopeShape(t, env)
 		d := env["detail"].(map[string]any)
 		assertDetailShape(t, d, acceptShape)
 		assert.ElementsMatch(t, []string{"t1", "t2"}, rawTicketIDs(d))
+		acceptedHere := 0
 		for _, tk := range asMaps(d["tickets"]) {
 			for _, p := range asMaps(tk["players"]) {
 				if acc, ok := p["accepted"]; ok && acc == true {
 					acceptedTrue[p["playerId"].(string)] = true
+					acceptedHere++
 				}
 			}
+		}
+		if acceptedHere > maxAcceptedInOneEvent {
+			maxAcceptedInOneEvent = acceptedHere
 		}
 	}
 	// Across the two AcceptMatch events both players are recorded as accepted.
 	assert.Equal(t, map[string]bool{"p-t1": true, "p-t2": true}, acceptedTrue)
+	// AcceptMatch reports cumulative state: the later event (after both accept)
+	// shows BOTH players accepted in a single event, not just the latest actor.
+	assert.Equal(t, 2, maxAcceptedInOneEvent, "a single AcceptMatch must reflect cumulative acceptance")
 
 	// --- AcceptMatchCompleted: settled as Accepted, both tickets, teams.
 	completedShape := eventShape{

@@ -122,8 +122,22 @@ func TestTicket_RecordPlayerAcceptanceValidatesWithoutEvent(t *testing.T) {
 
 	require.NoError(t, tk.RecordPlayerAcceptance("p1", true, now))
 	// The AcceptMatch notification is emitted by the application layer; the
-	// aggregate method only validates state.
+	// aggregate method only validates and records the decision.
 	assert.Empty(t, tk.PullEvents())
+	// The decision is retained so the app layer can report cumulative status.
+	assert.Equal(t, map[mm.PlayerID]bool{"p1": true}, tk.PlayerAcceptances())
+}
+
+func TestTicket_PlayerAcceptancesAccumulate(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	tk, _ := mm.NewTicket("t1", sampleConfig(), []mm.Player{{ID: "p1"}, {ID: "p2"}}, now)
+	_ = tk.PullEvents()
+	require.NoError(t, tk.AssignToProposal("m-1", now))
+
+	require.NoError(t, tk.RecordPlayerAcceptance("p1", true, now))
+	assert.Equal(t, map[mm.PlayerID]bool{"p1": true}, tk.PlayerAcceptances())
+	require.NoError(t, tk.RecordPlayerAcceptance("p2", false, now))
+	assert.Equal(t, map[mm.PlayerID]bool{"p1": true, "p2": false}, tk.PlayerAcceptances())
 }
 
 func TestTicket_RecordPlayerAcceptanceOutsideProposalRejected(t *testing.T) {

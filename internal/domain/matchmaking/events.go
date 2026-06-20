@@ -127,20 +127,22 @@ func (e EventTicketAssignedToProposal) AcceptanceTimeout() time.Duration     { r
 
 // EventPlayerAcceptanceRecorded maps to AcceptMatch: one or more players in the
 // match responded Accept or Reject. The event carries every ticket in the match
-// and the players whose acceptance this notification reflects.
+// and the cumulative acceptance status of all players who have responded so far
+// (playerID -> accepted), matching AWS, which reports each player's current
+// acceptance state on every AcceptMatch event.
 type EventPlayerAcceptanceRecorded struct {
-	configName ConfigurationName
-	matchID    MatchID
-	ticketIDs  []TicketID
-	playerIDs  []PlayerID
-	accepted   bool
-	occurredAt time.Time
+	configName  ConfigurationName
+	matchID     MatchID
+	ticketIDs   []TicketID
+	acceptances map[PlayerID]bool
+	occurredAt  time.Time
 }
 
-// NewAcceptMatch builds a match-level AcceptMatch event for the players that
-// just responded with the given acceptance value.
-func NewAcceptMatch(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, playerIDs []PlayerID, accepted bool, now time.Time) EventPlayerAcceptanceRecorded {
-	return EventPlayerAcceptanceRecorded{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, playerIDs: playerIDs, accepted: accepted, occurredAt: now}
+// NewAcceptMatch builds a match-level AcceptMatch event. acceptances holds the
+// cumulative per-player decisions recorded so far; players absent from it have
+// not yet responded and are rendered without an accepted flag.
+func NewAcceptMatch(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID, acceptances map[PlayerID]bool, now time.Time) EventPlayerAcceptanceRecorded {
+	return EventPlayerAcceptanceRecorded{configName: cfg, matchID: matchID, ticketIDs: ticketIDs, acceptances: acceptances, occurredAt: now}
 }
 
 func (e EventPlayerAcceptanceRecorded) isMatchmakingEvent()                 {}
@@ -149,8 +151,7 @@ func (e EventPlayerAcceptanceRecorded) ConfigurationName() ConfigurationName { r
 func (e EventPlayerAcceptanceRecorded) OccurredAt() time.Time                { return e.occurredAt }
 func (e EventPlayerAcceptanceRecorded) TicketIDs() []TicketID                { return e.ticketIDs }
 func (e EventPlayerAcceptanceRecorded) MatchID() MatchID                     { return e.matchID }
-func (e EventPlayerAcceptanceRecorded) PlayerIDs() []PlayerID                { return e.playerIDs }
-func (e EventPlayerAcceptanceRecorded) Accepted() bool                       { return e.accepted }
+func (e EventPlayerAcceptanceRecorded) Acceptances() map[PlayerID]bool       { return e.acceptances }
 
 // EventAcceptanceCompleted maps to AcceptMatchCompleted: the match's acceptance
 // phase terminally settled (all accepted, rejected, or timed out).

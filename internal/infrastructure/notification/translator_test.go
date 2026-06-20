@@ -93,7 +93,7 @@ func TestTranslator_AllEventTypes(t *testing.T) {
 		{
 			name: "AcceptMatch",
 			setup: func(tk *mm.Ticket) mm.Event {
-				return mm.NewAcceptMatch("cfg", "m-1", []mm.TicketID{tk.ID()}, []mm.PlayerID{"p1"}, true, now)
+				return mm.NewAcceptMatch("cfg", "m-1", []mm.TicketID{tk.ID()}, map[mm.PlayerID]bool{"p1": true}, now)
 			},
 			wantTyp: "AcceptMatch",
 		},
@@ -297,13 +297,48 @@ func TestTranslator_AttachesGameSessionInfo(t *testing.T) {
 	t.Run("AcceptMatch reflects accepted flag in gameSessionInfo players", func(t *testing.T) {
 		tk := makeTicket(t)
 		_ = tk.PullEvents()
-		ev := mm.NewAcceptMatch("cfg", "m-1", []mm.TicketID{tk.ID()}, []mm.PlayerID{"p1"}, false, now)
+		ev := mm.NewAcceptMatch("cfg", "m-1", []mm.TicketID{tk.ID()}, map[mm.PlayerID]bool{"p1": false}, now)
 		d := render(ev, tk)
 		require.NotNil(t, d.GameSessionInfo)
 		require.Len(t, d.GameSessionInfo.Players, 1)
 		require.NotNil(t, d.GameSessionInfo.Players[0].Accepted)
 		assert.False(t, *d.GameSessionInfo.Players[0].Accepted)
 	})
+}
+
+func TestTranslator_AcceptMatchReportsCumulativeAcceptance(t *testing.T) {
+	now := time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC)
+	cfg := mm.Configuration{Name: "cfg", ARN: "arn:cfg"}
+	// A two-player ticket where only p1 has responded so far.
+	tk, err := mm.NewTicket("t1", cfg, []mm.Player{{ID: "p1"}, {ID: "p2"}}, now)
+	require.NoError(t, err)
+	_ = tk.PullEvents()
+	lookup := func(id mm.TicketID) (notification.TicketDetail, bool) {
+		if id != tk.ID() {
+			return notification.TicketDetail{}, false
+		}
+		return notification.TicketDetail{
+			TicketID: string(tk.ID()),
+			Players:  []notification.PlayerDetail{{PlayerID: "p1"}, {PlayerID: "p2"}},
+		}, true
+	}
+	tr := notification.NewTranslator(idgen.NewSequence("e-"),
+		notification.EnvelopeSettings{Region: "us-east-1", AccountID: "000000000000"}, lookup)
+
+	ev := mm.NewAcceptMatch("cfg", "m-1", []mm.TicketID{tk.ID()}, map[mm.PlayerID]bool{"p1": true}, now)
+	env, err := tr.Render(ev)
+	require.NoError(t, err)
+
+	players := env.Detail.Tickets[0].Players
+	require.Len(t, players, 2)
+	byID := map[string]*bool{}
+	for _, p := range players {
+		byID[p.PlayerID] = p.Accepted
+	}
+	// p1 has accepted; p2 has not responded, so its accepted flag is absent.
+	require.NotNil(t, byID["p1"])
+	assert.True(t, *byID["p1"])
+	assert.Nil(t, byID["p2"], "unresponded player must omit accepted")
 }
 
 func TestTranslator_GameSessionInfoSerializesPlayers(t *testing.T) {
