@@ -195,10 +195,19 @@ func assertDetailShape(t *testing.T, detail map[string]any, s eventShape) {
 	gsi, ok := detail["gameSessionInfo"].(map[string]any)
 	require.True(t, ok, "gameSessionInfo present")
 	assert.ElementsMatch(t, s.gsiKeys, keySet(gsi), "gameSessionInfo keys")
-	require.NotEmpty(t, asMaps(gsi["players"]), "gameSessionInfo players present")
-	for _, p := range asMaps(gsi["players"]) {
+	gsiPlayers := asMaps(gsi["players"])
+	require.NotEmpty(t, gsiPlayers, "gameSessionInfo players present")
+	for _, p := range gsiPlayers {
 		assertPlayerShape(t, p, s)
 	}
+
+	// gameSessionInfo.players must be exactly the roster flattened across the
+	// event's tickets — same playerId/team/accepted values, not just key shape.
+	var flatTicketPlayers []map[string]any
+	for _, tk := range tickets {
+		flatTicketPlayers = append(flatTicketPlayers, asMaps(tk["players"])...)
+	}
+	assert.ElementsMatch(t, flatTicketPlayers, gsiPlayers, "gameSessionInfo players mirror tickets")
 }
 
 func assertPlayerShape(t *testing.T, p map[string]any, s eventShape) {
