@@ -27,6 +27,32 @@ type Service struct {
 	trackersOnce sync.Once
 	trackersMu   sync.Mutex
 	trackers     map[mm.ConfigurationName]*proposalTracker
+
+	cmdMu    sync.Mutex
+	cmdLocks map[mm.ConfigurationName]*sync.Mutex
+}
+
+// lockConfiguration serializes the whole use-case (engine access, ticket
+// read-modify-write and event draining) for a single configuration. FlexMatch
+// processes a configuration's pool sequentially, and the shared *flexi.Matchmaker
+// is not safe for concurrent use, so every command and every tick for the same
+// configuration must run under this lock. Distinct configurations keep their own
+// lock, preserving the Ticker's per-configuration parallelism. It returns the
+// unlock function so callers can `defer unlock()`.
+func (s *Service) lockConfiguration(name mm.ConfigurationName) func() {
+	s.cmdMu.Lock()
+	if s.cmdLocks == nil {
+		s.cmdLocks = map[mm.ConfigurationName]*sync.Mutex{}
+	}
+	mu, ok := s.cmdLocks[name]
+	if !ok {
+		mu = &sync.Mutex{}
+		s.cmdLocks[name] = mu
+	}
+	s.cmdMu.Unlock()
+
+	mu.Lock()
+	return mu.Unlock
 }
 
 // LoadConfigurations installs the configurations fmlocal serves. It replaces

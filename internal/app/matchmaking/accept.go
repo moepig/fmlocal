@@ -13,6 +13,9 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 	if err != nil {
 		return err
 	}
+	// ConfigurationName is fixed at construction, so reading it before taking the
+	// lock is race-free; everything that mutates the ticket runs under the lock.
+	defer s.lockConfiguration(ticket.ConfigurationName())()
 	engine, err := s.Engines.EngineFor(ticket.ConfigurationName())
 	if err != nil {
 		return err

@@ -2,6 +2,7 @@ package matchmaking
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/moepig/flexi"
@@ -28,6 +29,14 @@ func clonePlayers(src []flexi.Player) []flexi.Player {
 // Callers (application-layer use cases) pull events after each mutation and
 // hand them to an EventPublisher port.
 type Ticket struct {
+	// mu guards every mutable field below. The aggregate is shared between the
+	// per-configuration command/tick path (which mutates it) and lock-free read
+	// paths such as DescribeMatchmaking and the web UI (which read it), so each
+	// accessor takes a read lock and each mutator a write lock. Immutable fields
+	// fixed at construction (id, configurationName, configurationARN, players,
+	// startTime) are read without the lock.
+	mu sync.RWMutex
+
 	id                TicketID
 	configurationName ConfigurationName
 	configurationARN  string
@@ -74,23 +83,62 @@ func NewTicket(id TicketID, cfg Configuration, players []Player, now time.Time) 
 	return t, nil
 }
 
-// ID returns the ticket's identifier.
-func (t *Ticket) ID() TicketID                      { return t.id }
+// ID returns the ticket's identifier. id is immutable, so no lock is needed.
+func (t *Ticket) ID() TicketID                         { return t.id }
 func (t *Ticket) ConfigurationName() ConfigurationName { return t.configurationName }
-func (t *Ticket) ConfigurationARN() string           { return t.configurationARN }
-func (t *Ticket) Status() TicketStatus               { return t.status }
-func (t *Ticket) StartTime() time.Time               { return t.startTime }
-func (t *Ticket) EndTime() time.Time                 { return t.endTime }
-func (t *Ticket) Players() []Player                  { return clonePlayers(t.players) }
-func (t *Ticket) MatchID() MatchID                   { return t.matchID }
-func (t *Ticket) StatusReason() string               { return t.statusReason }
-func (t *Ticket) StatusMessage() string              { return t.statusMessage }
-func (t *Ticket) CancelRequestedByAPI() bool         { return t.cancelByAPI }
-func (t *Ticket) EstimatedWait() *time.Duration      { return t.estimatedWait }
+func (t *Ticket) ConfigurationARN() string             { return t.configurationARN }
+func (t *Ticket) StartTime() time.Time                 { return t.startTime }
+func (t *Ticket) Players() []Player                    { return clonePlayers(t.players) }
+
+func (t *Ticket) Status() TicketStatus {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.status
+}
+
+func (t *Ticket) EndTime() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.endTime
+}
+
+func (t *Ticket) MatchID() MatchID {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.matchID
+}
+
+func (t *Ticket) StatusReason() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.statusReason
+}
+
+func (t *Ticket) StatusMessage() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.statusMessage
+}
+
+func (t *Ticket) CancelRequestedByAPI() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.cancelByAPI
+}
+
+func (t *Ticket) EstimatedWait() *time.Duration {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.estimatedWait
+}
 
 // PlayerTeam returns the team a player was assigned to when the match formed,
 // or "" if no assignment has been recorded (e.g. before a proposal/match).
-func (t *Ticket) PlayerTeam(id PlayerID) string { return t.playerTeams[string(id)] }
+func (t *Ticket) PlayerTeam(id PlayerID) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.playerTeams[string(id)]
+}
 
 // SetPlayerTeams records the team assignment for players in this ticket. The
 // assignment originates from the engine when a proposal or match forms; only
@@ -99,6 +147,8 @@ func (t *Ticket) SetPlayerTeams(teams map[string]string) {
 	if len(teams) == 0 {
 		return
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.playerTeams == nil {
 		t.playerTeams = map[string]string{}
 	}
@@ -113,11 +163,15 @@ func (t *Ticket) SetPlayerTeams(teams map[string]string) {
 // this ticket so they can be surfaced in its terminal MatchmakingTimedOut /
 // MatchmakingCancelled event.
 func (t *Ticket) SetRuleMetrics(metrics []RuleEvaluationMetric) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.ruleMetrics = metrics
 }
 
 // PullEvents returns and clears the events accumulated since the last pull.
 func (t *Ticket) PullEvents() []Event {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	out := t.events
 	t.events = nil
 	return out
@@ -131,6 +185,8 @@ func (t *Ticket) PullEvents() []Event {
 // PotentialMatchCreated event is emitted by the application layer, which knows
 // the proposal's full ticket roster.
 func (t *Ticket) AssignToProposal(matchID MatchID, now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusRequiresAcceptance, now); err != nil {
 		return err
 	}
@@ -148,6 +204,8 @@ func (t *Ticket) AssignToProposal(matchID MatchID, now time.Time) error {
 // events can report the cumulative acceptance status of every player, matching
 // AWS. Requires the ticket to be in REQUIRES_ACCEPTANCE.
 func (t *Ticket) RecordPlayerAcceptance(playerID PlayerID, accepted bool, now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.status != StatusRequiresAcceptance {
 		return fmt.Errorf("%w: ticket %s is not in REQUIRES_ACCEPTANCE", ErrInvalidTransition, t.id)
 	}
@@ -164,6 +222,8 @@ func (t *Ticket) RecordPlayerAcceptance(playerID PlayerID, accepted bool, now ti
 // PlayerAcceptances returns the per-player acceptance decisions recorded so far
 // (playerID -> accepted). A player absent from the map has not yet responded.
 func (t *Ticket) PlayerAcceptances() map[PlayerID]bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	out := make(map[PlayerID]bool, len(t.playerAcceptances))
 	for id, accepted := range t.playerAcceptances {
 		out[PlayerID(id)] = accepted
@@ -173,6 +233,8 @@ func (t *Ticket) PlayerAcceptances() map[PlayerID]bool {
 
 // MoveToPlacing transitions an accepted proposal or direct match into PLACING.
 func (t *Ticket) MoveToPlacing(matchID MatchID, now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusPlacing, now); err != nil {
 		return err
 	}
@@ -185,6 +247,8 @@ func (t *Ticket) MoveToPlacing(matchID MatchID, now time.Time) error {
 // Complete marks the ticket COMPLETED. The match-level MatchmakingSucceeded
 // event is emitted by the application layer once per match.
 func (t *Ticket) Complete(now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusCompleted, now); err != nil {
 		return err
 	}
@@ -194,6 +258,8 @@ func (t *Ticket) Complete(now time.Time) error {
 
 // MarkFailed is used when a proposal is rejected by another ticket's player.
 func (t *Ticket) MarkFailed(reason, message string, now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusFailed, now); err != nil {
 		return err
 	}
@@ -209,6 +275,8 @@ func (t *Ticket) MarkFailed(reason, message string, now time.Time) error {
 // MarkTimedOut is used for request timeout (no match formed within budget) or
 // acceptance timeout (proposal not accepted in time).
 func (t *Ticket) MarkTimedOut(reason, message string, now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusTimedOut, now); err != nil {
 		return err
 	}
@@ -228,6 +296,8 @@ func (t *Ticket) MarkTimedOut(reason, message string, now time.Time) error {
 // the emitted event is MatchmakingCancelled, not MatchmakingFailed (which AWS
 // uses only for queue-placement / internal failures).
 func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusCancelled, now); err != nil {
 		return err
 	}
@@ -250,6 +320,8 @@ func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 // The ticket's stale proposal association (matchID, per-player acceptances) is
 // cleared so the next match starts clean.
 func (t *Ticket) ReturnToSearching(reason string, now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusSearching, now); err != nil {
 		return err
 	}
@@ -268,12 +340,18 @@ func (t *Ticket) ReturnToSearching(reason string, now time.Time) error {
 // RequestCancel is called by the application when the user invokes
 // StopMatchmaking. It records intent; actual engine-driven status change
 // happens later when the engine acknowledges the cancellation.
-func (t *Ticket) RequestCancel() { t.cancelByAPI = true }
+func (t *Ticket) RequestCancel() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cancelByAPI = true
+}
 
 // MarkCancelledByAPI transitions the ticket to CANCELLED because the user
 // asked for it. If RequestCancel was never called the transition still
 // succeeds — the application ensures ordering.
 func (t *Ticket) MarkCancelledByAPI(now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err := t.transition(StatusCancelled, now); err != nil {
 		return err
 	}
@@ -290,6 +368,8 @@ func (t *Ticket) MarkCancelledByAPI(now time.Time) error {
 // the ticket as actively searching. The Ticket aggregate uses it to suppress
 // duplicate MatchmakingSearching events after the first enqueue.
 func (t *Ticket) ObserveSearching() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.status = StatusSearching
 }
 

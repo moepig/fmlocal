@@ -69,6 +69,7 @@ func (s *Service) tracker(name mm.ConfigurationName) *proposalTracker {
 }
 
 func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
+	defer s.lockConfiguration(name)()
 	cfg, err := s.GetConfiguration(name)
 	if err != nil {
 		return err
