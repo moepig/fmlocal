@@ -314,21 +314,48 @@ func (s *Service) transitionFromEngine(cfg mm.Configuration, ticket *mm.Ticket, 
 	prev := ticket.Status()
 	switch curr {
 	case mm.StatusQueued, mm.StatusSearching:
+		// A ticket whose players all accepted a proposal that then failed
+		// acceptance (a sibling rejected or timed out) is returned to the pool
+		// by the engine; AWS re-emits MatchmakingSearching for it.
+		if prev == mm.StatusRequiresAcceptance {
+			return "", ticket.ReturnToSearching(now)
+		}
 		ticket.ObserveSearching()
 	case mm.StatusCancelled:
-		var outcome mm.AcceptanceOutcome
-		if prev == mm.StatusRequiresAcceptance {
-			outcome = mm.AcceptanceRejected
-		}
+		// A user-initiated StopMatchmaking always wins.
 		if ticket.CancelRequestedByAPI() {
-			return outcome, ticket.MarkCancelledByAPI(now)
+			return "", ticket.MarkCancelledByAPI(now)
 		}
-		return outcome, ticket.MarkCancelledViaReject(now)
-	case mm.StatusTimedOut:
+		// Otherwise this is the ticket that caused a proposal's acceptance to
+		// fail. AWS cancels it (CANCELLED, not FAILED) and reports the
+		// match-level outcome — Rejected vs TimedOut — on AcceptMatchCompleted.
 		if prev == mm.StatusRequiresAcceptance {
-			return mm.AcceptanceTimedOut, ticket.MarkTimedOut("TimedOut", "Proposal was not accepted within the timeout", now)
+			return s.acceptanceFailureOutcome(cfg.Name, ticket.MatchID()), ticket.MarkCancelledByAcceptanceFailure(now)
 		}
+		return "", ticket.MarkCancelledByAcceptanceFailure(now)
+	case mm.StatusTimedOut:
+		// Only the request-level timeout reaches the engine as TIMED_OUT;
+		// acceptance failures terminate as CANCELLED above.
 		return "", ticket.MarkTimedOut("TimedOut", "Matchmaking timed out", now)
 	}
 	return "", nil
+}
+
+// acceptanceFailureOutcome classifies why a proposal's acceptance failed by
+// inspecting the per-player decisions recorded across the match's tickets: an
+// explicit rejection yields Rejected; otherwise the proposal lapsed and the
+// outcome is TimedOut. The two map to AWS's AcceptMatchCompleted "acceptance".
+func (s *Service) acceptanceFailureOutcome(name mm.ConfigurationName, matchID mm.MatchID) mm.AcceptanceOutcome {
+	for _, tid := range s.tracker(name).ticketsFor(matchID) {
+		ticket, err := s.GetTicket(tid)
+		if err != nil {
+			continue
+		}
+		for _, accepted := range ticket.PlayerAcceptances() {
+			if !accepted {
+				return mm.AcceptanceRejected
+			}
+		}
+	}
+	return mm.AcceptanceTimedOut
 }

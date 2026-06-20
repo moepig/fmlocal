@@ -81,23 +81,44 @@ func TestTicket_InvalidTransitionReturnsError(t *testing.T) {
 	require.ErrorIs(t, err, mm.ErrInvalidTransition)
 }
 
-func TestTicket_RejectFlow(t *testing.T) {
+func TestTicket_AcceptanceFailureCancelFlow(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	tk, _ := mm.NewTicket("t1", sampleConfig(), []mm.Player{{ID: "p1"}}, now)
 	_ = tk.PullEvents()
 	require.NoError(t, tk.AssignToProposal("m-1", now))
 	_ = tk.PullEvents()
 
-	require.NoError(t, tk.MarkCancelledViaReject(now))
+	require.NoError(t, tk.MarkCancelledByAcceptanceFailure(now))
 	assert.Equal(t, mm.StatusCancelled, tk.Status())
 	evs := tk.PullEvents()
 	types := []string{}
 	for _, e := range evs {
 		types = append(types, e.EventName())
 	}
-	// AcceptMatchCompleted is emitted by the app layer; the aggregate only
-	// records the ticket-scoped MatchmakingFailed.
-	assert.Equal(t, []string{"MatchmakingFailed"}, types)
+	// AcceptMatchCompleted is emitted by the app layer; the aggregate records
+	// the ticket-scoped MatchmakingCancelled (AWS reserves MatchmakingFailed for
+	// queue/internal failures, not acceptance failures).
+	assert.Equal(t, []string{"MatchmakingCancelled"}, types)
+}
+
+func TestTicket_ReturnToSearchingReQueues(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	tk, _ := mm.NewTicket("t1", sampleConfig(), []mm.Player{{ID: "p1"}}, now)
+	_ = tk.PullEvents()
+	require.NoError(t, tk.AssignToProposal("m-1", now))
+	require.NoError(t, tk.RecordPlayerAcceptance("p1", true, now))
+	_ = tk.PullEvents()
+
+	require.NoError(t, tk.ReturnToSearching(now))
+	assert.Equal(t, mm.StatusSearching, tk.Status())
+	// The stale proposal association is cleared so the next match starts clean.
+	assert.Equal(t, mm.MatchID(""), tk.MatchID())
+	assert.Empty(t, tk.PlayerAcceptances())
+	// AWS re-emits MatchmakingSearching when a re-queued ticket returns to the
+	// pool after a failed acceptance.
+	evs := tk.PullEvents()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "MatchmakingSearching", evs[0].EventName())
 }
 
 func TestTicket_UserCancelFlow(t *testing.T) {

@@ -60,6 +60,16 @@ func (c *capturePublisher) Names() []string {
 	return out
 }
 
+func countName(names []string, want string) int {
+	n := 0
+	for _, name := range names {
+		if name == want {
+			n++
+		}
+	}
+	return n
+}
+
 type harness struct {
 	svc   *appmm.Service
 	pub   *capturePublisher
@@ -175,8 +185,53 @@ func TestService_RejectFailsMatch(t *testing.T) {
 	}))
 	require.NoError(t, h.svc.Tick(ctx, "c1"))
 	t1, _ := h.svc.GetTicket("t1")
+	// Neither player accepted, so both tickets are cancelled (t1 because its
+	// player rejected; t2 because it never accepted). AWS emits
+	// MatchmakingCancelled — not MatchmakingFailed — for an acceptance failure,
+	// and AcceptMatchCompleted carries acceptance=Rejected.
 	assert.Equal(t, mm.StatusCancelled, t1.Status())
-	assert.Contains(t, h.pub.Names(), "MatchmakingFailed")
+	assert.Contains(t, h.pub.Names(), "MatchmakingCancelled")
+	assert.NotContains(t, h.pub.Names(), "MatchmakingFailed")
+}
+
+// TestService_RejectReQueuesAcceptingTicket covers the AWS behavior that a
+// ticket whose players all accepted is returned to the pool (re-emitting
+// MatchmakingSearching) when a sibling rejects, while only the rejecting ticket
+// is cancelled.
+func TestService_RejectReQueuesAcceptingTicket(t *testing.T) {
+	h := setup(t, skillRSAccept, true)
+	ctx := context.Background()
+	for _, id := range []mm.TicketID{"t1", "t2"} {
+		_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: "c1",
+			TicketID:          id,
+			Players:           []flexi.Player{{ID: string(id)}},
+		})
+		require.NoError(t, err)
+	}
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	// t1 accepts, t2 rejects.
+	require.NoError(t, h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: "t1", PlayerIDs: []mm.PlayerID{"t1"}, Accepted: true,
+	}))
+	require.NoError(t, h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: "t2", PlayerIDs: []mm.PlayerID{"t2"}, Accepted: false,
+	}))
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+
+	t1, _ := h.svc.GetTicket("t1")
+	t2, _ := h.svc.GetTicket("t2")
+	// t1 accepted → returned to the pool; t2 rejected → cancelled.
+	assert.Equal(t, mm.StatusSearching, t1.Status())
+	assert.Equal(t, mm.StatusCancelled, t2.Status())
+	// Two initial MatchmakingSearching (t1, t2) plus t1's re-queue re-emit = 3;
+	// t2's cancel emits MatchmakingCancelled; AcceptMatchCompleted reports the
+	// rejection once.
+	names := h.pub.Names()
+	assert.Equal(t, 3, countName(names, "MatchmakingSearching"))
+	assert.Contains(t, names, "AcceptMatchCompleted")
+	assert.Contains(t, names, "MatchmakingCancelled")
+	assert.NotContains(t, names, "MatchmakingFailed")
 }
 
 func TestService_AcceptanceTimeout(t *testing.T) {
@@ -194,8 +249,12 @@ func TestService_AcceptanceTimeout(t *testing.T) {
 	h.clock.Advance(31 * time.Second)
 	require.NoError(t, h.svc.Tick(ctx, "c1"))
 	t1, _ := h.svc.GetTicket("t1")
-	assert.Equal(t, mm.StatusTimedOut, t1.Status())
-	assert.Contains(t, h.pub.Names(), "MatchmakingTimedOut")
+	// No player accepted before the acceptance timeout elapsed: AWS reserves
+	// TIMED_OUT for the request-level timeout and cancels acceptance failures,
+	// so the tickets end CANCELLED and AcceptMatchCompleted reports TimedOut.
+	assert.Equal(t, mm.StatusCancelled, t1.Status())
+	assert.Contains(t, h.pub.Names(), "MatchmakingCancelled")
+	assert.NotContains(t, h.pub.Names(), "MatchmakingTimedOut")
 }
 
 func TestService_StopMatchmaking(t *testing.T) {

@@ -49,7 +49,10 @@ func (s TicketStatus) canTransitionTo(next TicketStatus) bool {
 		}
 	case StatusRequiresAcceptance:
 		switch next {
-		case StatusPlacing, StatusCancelled, StatusTimedOut, StatusFailed:
+		// SEARCHING: a proposal this ticket accepted failed to gather every
+		// required acceptance, so the engine returns the ticket to the pool and
+		// AWS re-emits MatchmakingSearching.
+		case StatusSearching, StatusPlacing, StatusCancelled, StatusTimedOut, StatusFailed:
 			return true
 		}
 	case StatusPlacing:

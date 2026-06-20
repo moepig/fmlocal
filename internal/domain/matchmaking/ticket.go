@@ -218,18 +218,41 @@ func (t *Ticket) MarkTimedOut(reason, message string, now time.Time) error {
 	return nil
 }
 
-// MarkCancelledViaReject is used when the ticket's proposal is dissolved
-// because another player rejected. From the ticket's perspective the status
-// is CANCELLED (matching flexi) but the emitted event is MatchmakingFailed.
-func (t *Ticket) MarkCancelledViaReject(now time.Time) error {
+// MarkCancelledByAcceptanceFailure is used for the ticket(s) that caused a
+// proposal's acceptance to fail — a player who rejected, or who never responded
+// before the acceptance timeout elapsed. Following AWS FlexMatch the ticket
+// moves to CANCELLED (TIMED_OUT is reserved for the request-level timeout) and
+// the emitted event is MatchmakingCancelled, not MatchmakingFailed (which AWS
+// uses only for queue-placement / internal failures).
+func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 	if err := t.transition(StatusCancelled, now); err != nil {
 		return err
 	}
 	t.endTime = now
-	t.statusReason = "Rejected"
-	t.statusMessage = "Proposal was rejected"
-	t.recordEvent(EventMatchmakingFailed{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: "Rejected", message: "Proposal was rejected", ruleMetrics: t.ruleMetrics, occurredAt: now,
+	t.statusReason = "Cancelled"
+	t.statusMessage = "A player failed to accept the proposed match"
+	t.recordEvent(EventMatchmakingCancelled{
+		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, ruleMetrics: t.ruleMetrics, occurredAt: now,
+	})
+	return nil
+}
+
+// ReturnToSearching re-queues a ticket whose players all accepted a proposal
+// that then failed acceptance (a sibling ticket rejected or timed out). flexi
+// returns such a ticket to the matchmaking pool in SEARCHING; AWS mirrors this
+// by re-emitting MatchmakingSearching, which the recorded
+// EventTicketSearchingStarted renders. The ticket's stale proposal association
+// (matchID, per-player acceptances) is cleared so the next match starts clean.
+func (t *Ticket) ReturnToSearching(now time.Time) error {
+	if err := t.transition(StatusSearching, now); err != nil {
+		return err
+	}
+	t.matchID = ""
+	t.playerAcceptances = nil
+	t.recordEvent(EventTicketSearchingStarted{
+		ticketID:   t.id,
+		configName: t.configurationName,
+		occurredAt: now,
 	})
 	return nil
 }
