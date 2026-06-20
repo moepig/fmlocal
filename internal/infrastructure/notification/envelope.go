@@ -70,10 +70,17 @@ type RuleEvalMetric struct {
 	FailedCount int    `json:"failedCount"`
 }
 
+// GameSessionInfo mirrors AWS's per-event gameSessionInfo block. Every
+// matchmaking event carries it with the flattened player roster. In STANDALONE
+// mode no game session is created, so the connection fields (ipAddress, port,
+// gameSessionArn, ...) are legitimately absent; only players (and, on
+// MatchmakingSucceeded, matchId) are populated.
 type GameSessionInfo struct {
-	IPAddress      string `json:"ipAddress,omitempty"`
-	Port           int    `json:"port,omitempty"`
-	GameSessionARN string `json:"gameSessionArn,omitempty"`
+	IPAddress      string         `json:"ipAddress,omitempty"`
+	Port           int            `json:"port,omitempty"`
+	GameSessionARN string         `json:"gameSessionArn,omitempty"`
+	MatchID        string         `json:"matchId,omitempty"`
+	Players        []PlayerDetail `json:"players"`
 }
 
 // EnvelopeSettings captures the regional/account metadata needed to render
@@ -186,7 +193,26 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	default:
 		return Detail{}, fmt.Errorf("notification: unknown event %T", e)
 	}
+	// AWS attaches gameSessionInfo to every matchmaking event, with a player
+	// roster flattened across the event's tickets (carrying the same team /
+	// accepted fields). MatchmakingSucceeded additionally identifies the match.
+	gsi := &GameSessionInfo{Players: flattenTicketPlayers(d.Tickets)}
+	if _, ok := e.(mm.EventMatchmakingSucceeded); ok {
+		gsi.MatchID = d.MatchID
+	}
+	d.GameSessionInfo = gsi
 	return d, nil
+}
+
+// flattenTicketPlayers concatenates every ticket's players into a single
+// roster for gameSessionInfo. The PlayerDetail values already carry the per
+// event team/accepted fields resolved during ticket lookup.
+func flattenTicketPlayers(tickets []TicketDetail) []PlayerDetail {
+	out := make([]PlayerDetail, 0, len(tickets))
+	for _, t := range tickets {
+		out = append(out, t.Players...)
+	}
+	return out
 }
 
 // toWireRuleMetrics converts domain rule-evaluation metrics into the wire shape

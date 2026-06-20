@@ -222,6 +222,75 @@ func TestTranslator_RendersRuleEvaluationMetrics(t *testing.T) {
 	})
 }
 
+func TestTranslator_AttachesGameSessionInfo(t *testing.T) {
+	now := time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC)
+
+	render := func(ev mm.Event, tk *mm.Ticket) notification.Detail {
+		tr := notification.NewTranslator(idgen.NewSequence("e-"),
+			notification.EnvelopeSettings{Region: "us-east-1", AccountID: "000000000000"}, lookupFor(tk))
+		env, err := tr.Render(ev)
+		require.NoError(t, err)
+		return env.Detail
+	}
+
+	t.Run("MatchmakingSearching carries the roster, no connection details", func(t *testing.T) {
+		tk := makeTicket(t)
+		d := render(tk.PullEvents()[0], tk)
+		require.NotNil(t, d.GameSessionInfo)
+		require.Len(t, d.GameSessionInfo.Players, 1)
+		assert.Equal(t, "p1", d.GameSessionInfo.Players[0].PlayerID)
+		// STANDALONE creates no game session.
+		assert.Empty(t, d.GameSessionInfo.IPAddress)
+		assert.Zero(t, d.GameSessionInfo.Port)
+		assert.Empty(t, d.GameSessionInfo.GameSessionARN)
+		// matchId only appears on MatchmakingSucceeded's gameSessionInfo.
+		assert.Empty(t, d.GameSessionInfo.MatchID)
+	})
+
+	t.Run("MatchmakingSucceeded sets matchId inside gameSessionInfo", func(t *testing.T) {
+		tk := makeTicket(t)
+		_ = tk.PullEvents()
+		ev := mm.NewMatchmakingSucceeded("cfg", "m-1", []mm.TicketID{tk.ID()}, now)
+		d := render(ev, tk)
+		require.NotNil(t, d.GameSessionInfo)
+		assert.Equal(t, "m-1", d.GameSessionInfo.MatchID)
+		require.Len(t, d.GameSessionInfo.Players, 1)
+		assert.Equal(t, "p1", d.GameSessionInfo.Players[0].PlayerID)
+		assert.Empty(t, d.GameSessionInfo.IPAddress)
+	})
+
+	t.Run("AcceptMatch reflects accepted flag in gameSessionInfo players", func(t *testing.T) {
+		tk := makeTicket(t)
+		_ = tk.PullEvents()
+		ev := mm.NewAcceptMatch("cfg", "m-1", []mm.TicketID{tk.ID()}, []mm.PlayerID{"p1"}, false, now)
+		d := render(ev, tk)
+		require.NotNil(t, d.GameSessionInfo)
+		require.Len(t, d.GameSessionInfo.Players, 1)
+		require.NotNil(t, d.GameSessionInfo.Players[0].Accepted)
+		assert.False(t, *d.GameSessionInfo.Players[0].Accepted)
+	})
+}
+
+func TestTranslator_GameSessionInfoSerializesPlayers(t *testing.T) {
+	tk := makeTicket(t)
+	tr := notification.NewTranslator(idgen.NewSequence("e-"),
+		notification.EnvelopeSettings{Region: "us-east-1", AccountID: "000000000000"}, lookupFor(tk))
+	raw, err := tr.Marshal(tk.PullEvents()[0])
+	require.NoError(t, err)
+	var out struct {
+		Detail struct {
+			GameSessionInfo struct {
+				Players []struct {
+					PlayerID string `json:"playerId"`
+				} `json:"players"`
+			} `json:"gameSessionInfo"`
+		} `json:"detail"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &out))
+	require.Len(t, out.Detail.GameSessionInfo.Players, 1)
+	assert.Equal(t, "p1", out.Detail.GameSessionInfo.Players[0].PlayerID)
+}
+
 func TestTranslator_MarshalProducesStableJSON(t *testing.T) {
 	tk := makeTicket(t)
 	events := tk.PullEvents()

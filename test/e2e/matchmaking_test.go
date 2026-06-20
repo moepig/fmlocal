@@ -295,6 +295,18 @@ func TestE2E_StandaloneMatch_NoAcceptance(t *testing.T) {
 		}
 	}
 	assert.ElementsMatch(t, []string{"red", "blue"}, teams)
+
+	// gameSessionInfo carries the flattened roster (both players, both teams)
+	// and the match id; STANDALONE creates no session so connection info is absent.
+	gsi := succeeded[0].Detail.GameSessionInfo
+	require.NotNil(t, gsi)
+	assert.Equal(t, succeeded[0].Detail.MatchID, gsi.MatchID)
+	var gsiTeams []string
+	for _, p := range gsi.Players {
+		gsiTeams = append(gsiTeams, p.Team)
+	}
+	assert.ElementsMatch(t, []string{"red", "blue"}, gsiTeams)
+	assert.Empty(t, gsi.IPAddress)
 }
 
 func TestE2E_AcceptanceFlow(t *testing.T) {
