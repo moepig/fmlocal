@@ -48,7 +48,6 @@ type Ticket struct {
 	endTime           time.Time
 	matchID           MatchID
 	cancelByAPI       bool
-	searchingEmitted  bool
 	estimatedWait     *time.Duration
 	playerTeams       map[string]string
 	playerAcceptances map[string]bool
@@ -73,7 +72,6 @@ func NewTicket(id TicketID, cfg Configuration, players []Player, now time.Time) 
 		players:           clonePlayers(players),
 		status:            StatusQueued,
 		startTime:         now,
-		searchingEmitted:  true,
 	}
 	t.recordEvent(EventTicketSearchingStarted{
 		ticketID:   id,
@@ -256,7 +254,13 @@ func (t *Ticket) Complete(now time.Time) error {
 	return nil
 }
 
-// MarkFailed is used when a proposal is rejected by another ticket's player.
+// MarkFailed transitions the ticket to FAILED and emits EventMatchmakingFailed.
+// It is reserved for AWS's MatchmakingFailed semantics — queue-placement and
+// internal failures — and is intentionally NOT on the current engine-driven
+// flow: acceptance failures terminate as CANCELLED (see
+// MarkCancelledByAcceptanceFailure), and request timeouts as TIMED_OUT. The
+// method and its event remain part of the model so the publisher taxonomy
+// mirrors AWS and a future placement path can surface the event.
 func (t *Ticket) MarkFailed(reason, message string, now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -364,9 +368,10 @@ func (t *Ticket) MarkCancelledByAPI(now time.Time) error {
 	return nil
 }
 
-// ObserveSearching is a no-op status tick used when the engine still reports
-// the ticket as actively searching. The Ticket aggregate uses it to suppress
-// duplicate MatchmakingSearching events after the first enqueue.
+// ObserveSearching advances the ticket to SEARCHING when the engine still
+// reports it as actively searching. It deliberately records no event, so the
+// initial MatchmakingSearching emitted at enqueue is not duplicated on every
+// tick the ticket remains in the pool.
 func (t *Ticket) ObserveSearching() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -393,35 +398,3 @@ func (t *Ticket) hasPlayer(id PlayerID) bool {
 }
 
 func (t *Ticket) recordEvent(e Event) { t.events = append(t.events, e) }
-
-// RebuildTicket is used by infrastructure to hydrate an aggregate from
-// persistence without triggering events. It skips invariant checks and does
-// NOT accumulate events; it is intended for in-memory repository re-loads.
-func RebuildTicket(
-	id TicketID,
-	cfgName ConfigurationName,
-	cfgARN string,
-	players []Player,
-	status TicketStatus,
-	startTime, endTime time.Time,
-	matchID MatchID,
-	cancelByAPI bool,
-	statusReason, statusMessage string,
-	estimatedWait *time.Duration,
-) *Ticket {
-	return &Ticket{
-		id:                id,
-		configurationName: cfgName,
-		configurationARN:  cfgARN,
-		players:           clonePlayers(players),
-		status:            status,
-		startTime:         startTime,
-		endTime:           endTime,
-		matchID:           matchID,
-		cancelByAPI:       cancelByAPI,
-		statusReason:      statusReason,
-		statusMessage:     statusMessage,
-		estimatedWait:     estimatedWait,
-		searchingEmitted:  true,
-	}
-}
