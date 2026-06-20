@@ -27,6 +27,68 @@ import (
 // writes" panic that takes down the whole process, since playerAcceptances and
 // playerTeams are plain maps.
 
+// blockingPublisher blocks the first Publish call until released, signalling
+// when it has been entered. Later calls return immediately. It lets a test pin
+// one event delivery in flight and observe whether the command lock is free
+// while that delivery blocks.
+type blockingPublisher struct {
+	mu      sync.Mutex
+	n       int
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingPublisher) Publish(_ context.Context, _ mm.Event) error {
+	b.mu.Lock()
+	b.n++
+	first := b.n == 1
+	b.mu.Unlock()
+	if first {
+		close(b.entered)
+		<-b.release
+	}
+	return nil
+}
+
+// TestPublish_NotHeldUnderCommandLock verifies event publishing runs only after
+// the per-configuration command lock is released (fix b). While one command is
+// blocked delivering its event, another command for the same configuration must
+// still make progress. If publishing held the command lock, the second command
+// would block until the publisher returned and the test would time out.
+func TestPublish_NotHeldUnderCommandLock(t *testing.T) {
+	blocking := &blockingPublisher{entered: make(chan struct{}), release: make(chan struct{})}
+	h := setupWithPublisher(t, skillRS, false, blocking)
+	ctx := context.Background()
+
+	// t1's MatchmakingSearching delivery blocks inside the publisher — but only
+	// after StartMatchmaking has released the command lock.
+	go func() {
+		_, _ = h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: "c1", TicketID: "t1",
+			Players: []flexi.Player{{ID: "t1"}},
+		})
+	}()
+	<-blocking.entered // a publish is now in flight; the command lock must be free
+
+	// A second command on the same configuration must not wait for that publish.
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: "c1", TicketID: "t2",
+			Players: []flexi.Player{{ID: "t2"}},
+		})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("second command blocked while a publish was in flight: publishing is holding the command lock")
+	}
+	close(blocking.release)
+}
+
 // proposeTwoTickets starts t1/t2 and ticks once so both sit in
 // REQUIRES_ACCEPTANCE, the state AcceptMatch operates on.
 func proposeTwoTickets(t *testing.T, h *harness) {

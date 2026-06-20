@@ -78,6 +78,14 @@ type harness struct {
 
 func setup(t *testing.T, ruleset string, acceptance bool) *harness {
 	t.Helper()
+	pub := &capturePublisher{}
+	h := setupWithPublisher(t, ruleset, acceptance, pub)
+	h.pub = pub
+	return h
+}
+
+func setupWithPublisher(t *testing.T, ruleset string, acceptance bool, pub ports.EventPublisher) *harness {
+	t.Helper()
 	clk := sysclock.NewFake(time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC))
 	cfg := mm.Configuration{
 		Name:               "c1",
@@ -92,7 +100,6 @@ func setup(t *testing.T, ruleset string, acceptance bool) *harness {
 	require.NoError(t, err)
 	resolver := appmm.NewStaticEngineResolver()
 	resolver.Register(cfg.Name, engine)
-	pub := &capturePublisher{}
 	svc := &appmm.Service{
 		Engines:    resolver,
 		Publishers: map[mm.ConfigurationName]ports.EventPublisher{cfg.Name: pub},
@@ -102,7 +109,7 @@ func setup(t *testing.T, ruleset string, acceptance bool) *harness {
 	}
 	svc.LoadConfigurations([]mm.Configuration{cfg})
 	svc.LoadRuleSets([]mm.RuleSet{rs})
-	return &harness{svc: svc, pub: pub, clock: clk}
+	return &harness{svc: svc, clock: clk}
 }
 
 func TestService_StartEmitsSearching(t *testing.T) {

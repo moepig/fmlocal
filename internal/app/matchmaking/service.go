@@ -210,16 +210,44 @@ func (s *Service) publisher(name mm.ConfigurationName) ports.EventPublisher {
 	return noopPublisher{}
 }
 
-func (s *Service) dispatchEvents(ctx context.Context, name mm.ConfigurationName, t *mm.Ticket) {
-	for _, ev := range t.PullEvents() {
-		s.publishEvent(ctx, name, ev)
+// eventBatch collects the events a command produces while it holds the
+// per-configuration command lock. releaseAndFlush publishes them only after the
+// lock is released, so blocking publisher I/O (HTTP/SQS) never runs inside the
+// critical section and cannot stall other commands or ticks for the same
+// configuration. Events are published in the order added, preserving
+// per-configuration ordering.
+type eventBatch struct {
+	name   mm.ConfigurationName
+	events []mm.Event
+}
+
+func newEventBatch(name mm.ConfigurationName) *eventBatch {
+	return &eventBatch{name: name}
+}
+
+// add queues a match-level event constructed directly by the application layer.
+func (b *eventBatch) add(ev mm.Event) { b.events = append(b.events, ev) }
+
+// addTicket drains and queues the ticket's accumulated domain events. It must be
+// called while the command lock is held, since PullEvents mutates the ticket.
+func (b *eventBatch) addTicket(t *mm.Ticket) {
+	b.events = append(b.events, t.PullEvents()...)
+}
+
+// releaseAndFlush is deferred by every command that emits events: it releases
+// the command lock and only then publishes the batch, keeping publisher I/O out
+// of the critical section. As a deferred call it runs after the command's return
+// values have been set, and the batch pointer means events queued after the
+// defer statement are still flushed.
+func (s *Service) releaseAndFlush(ctx context.Context, unlock func(), b *eventBatch) {
+	unlock()
+	for _, ev := range b.events {
+		s.publishOne(ctx, b.name, ev)
 	}
 }
 
-// publishEvent delivers a single event through the configuration's publisher.
-// It is used both for ticket-scoped events (drained via dispatchEvents) and for
-// match-level events constructed directly by the application layer.
-func (s *Service) publishEvent(ctx context.Context, name mm.ConfigurationName, ev mm.Event) {
+// publishOne delivers a single event through the configuration's publisher.
+func (s *Service) publishOne(ctx context.Context, name mm.ConfigurationName, ev mm.Event) {
 	if err := s.publisher(name).Publish(ctx, ev); err != nil {
 		s.logger().Warn("publish event failed",
 			"configuration", name, "event", ev.EventName(), "error", err.Error())

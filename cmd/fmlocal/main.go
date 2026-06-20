@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -32,6 +33,10 @@ import (
 )
 
 var version = "dev"
+
+// snsHTTPTimeout bounds how long a single SNS HTTP delivery may block so a slow
+// or unresponsive subscriber cannot wedge the publishing goroutine.
+const snsHTTPTimeout = 10 * time.Second
 
 func main() {
 	var configPath string
@@ -176,6 +181,10 @@ func buildPublishers(ctx context.Context, cfg *configfile.Loaded, ids ports.IDGe
 	out := map[string]ports.EventPublisher{}
 	settings := notification.EnvelopeSettings{Region: cfg.Region, AccountID: cfg.AccountID}
 	lookup := ticketLookup(svc)
+	// A dedicated client with an explicit timeout: http.DefaultClient has none,
+	// so an unresponsive SNS subscriber would block the publishing goroutine
+	// indefinitely.
+	snsClient := &http.Client{Timeout: snsHTTPTimeout}
 	for _, p := range cfg.Publishers {
 		if !p.Enabled {
 			continue
@@ -184,7 +193,7 @@ func buildPublishers(ctx context.Context, cfg *configfile.Loaded, ids ports.IDGe
 		var pub ports.EventPublisher
 		switch p.Kind {
 		case configfile.PublisherKindSNSHTTP:
-			pub = notification.NewSNSHTTPPublisher(p.URL, translator, ids, http.DefaultClient)
+			pub = notification.NewSNSHTTPPublisher(p.URL, translator, ids, snsClient)
 		case configfile.PublisherKindSQSEventBridge:
 			awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
 				awsconfig.WithRegion(defaultString(p.AWSRegion, "us-east-1")),

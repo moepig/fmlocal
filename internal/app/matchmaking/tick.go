@@ -69,7 +69,9 @@ func (s *Service) tracker(name mm.ConfigurationName) *proposalTracker {
 }
 
 func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
-	defer s.lockConfiguration(name)()
+	unlock := s.lockConfiguration(name)
+	batch := newEventBatch(name)
+	defer s.releaseAndFlush(ctx, unlock, batch)
 	cfg, err := s.GetConfiguration(name)
 	if err != nil {
 		return err
@@ -80,7 +82,7 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 	}
 	now := s.Clock.Now()
 
-	if err := s.enforceRequestTimeouts(ctx, cfg, engine, now); err != nil {
+	if err := s.enforceRequestTimeouts(cfg, engine, now, batch); err != nil {
 		return err
 	}
 	before := engine.PendingAcceptances()
@@ -89,16 +91,16 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 		return fmt.Errorf("matchmaking: tick: %w", err)
 	}
 	after := engine.PendingAcceptances()
-	if err := s.applyNewProposals(ctx, cfg, before, after, now); err != nil {
+	if err := s.applyNewProposals(cfg, before, after, now, batch); err != nil {
 		return err
 	}
-	if err := s.finalizeMatches(ctx, cfg, engine, matches, now); err != nil {
+	if err := s.finalizeMatches(cfg, engine, matches, now, batch); err != nil {
 		return err
 	}
-	return s.syncActiveTickets(ctx, cfg, engine, now)
+	return s.syncActiveTickets(cfg, engine, now, batch)
 }
 
-func (s *Service) enforceRequestTimeouts(ctx context.Context, cfg mm.Configuration, engine *flexi.Matchmaker, now time.Time) error {
+func (s *Service) enforceRequestTimeouts(cfg mm.Configuration, engine *flexi.Matchmaker, now time.Time, batch *eventBatch) error {
 	if cfg.RequestTimeout <= 0 {
 		return nil
 	}
@@ -124,7 +126,7 @@ func (s *Service) enforceRequestTimeouts(ctx context.Context, cfg mm.Configurati
 		if err := s.SaveTicket(ticket); err != nil {
 			return err
 		}
-		s.dispatchEvents(ctx, cfg.Name, ticket)
+		batch.addTicket(ticket)
 	}
 	return nil
 }
@@ -170,7 +172,7 @@ func captureRuleMetrics(engine *flexi.Matchmaker, ticket *mm.Ticket) {
 	}
 }
 
-func (s *Service) applyNewProposals(ctx context.Context, cfg mm.Configuration, before, after []flexi.Proposal, now time.Time) error {
+func (s *Service) applyNewProposals(cfg mm.Configuration, before, after []flexi.Proposal, now time.Time, batch *eventBatch) error {
 	name := cfg.Name
 	tracker := s.tracker(name)
 	seen := map[string]bool{}
@@ -204,12 +206,12 @@ func (s *Service) applyNewProposals(ctx context.Context, cfg mm.Configuration, b
 		}
 		// One PotentialMatchCreated per match, carrying every ticket, the
 		// search's rule-evaluation metrics, and the config's acceptance policy.
-		s.publishEvent(ctx, name, mm.NewPotentialMatchCreated(name, matchID, tids, toRuleMetrics(p.RuleEvaluationMetrics), cfg.AcceptanceRequired, cfg.AcceptanceTimeout, now))
+		batch.add(mm.NewPotentialMatchCreated(name, matchID, tids, toRuleMetrics(p.RuleEvaluationMetrics), cfg.AcceptanceRequired, cfg.AcceptanceTimeout, now))
 	}
 	return nil
 }
 
-func (s *Service) finalizeMatches(ctx context.Context, cfg mm.Configuration, engine *flexi.Matchmaker, matches []flexi.Match, now time.Time) error {
+func (s *Service) finalizeMatches(cfg mm.Configuration, engine *flexi.Matchmaker, matches []flexi.Match, now time.Time, batch *eventBatch) error {
 	tracker := s.tracker(cfg.Name)
 	for _, m := range matches {
 		tids := toTicketIDs(m.TicketIDs)
@@ -252,19 +254,19 @@ func (s *Service) finalizeMatches(ctx context.Context, cfg mm.Configuration, eng
 		// so emit its PotentialMatchCreated here. AWS emits this event for all
 		// new potential matches regardless of whether acceptance is required.
 		if directMatch {
-			s.publishEvent(ctx, cfg.Name, mm.NewPotentialMatchCreated(cfg.Name, matchID, tids, toRuleMetrics(m.RuleEvaluationMetrics), cfg.AcceptanceRequired, cfg.AcceptanceTimeout, now))
+			batch.add(mm.NewPotentialMatchCreated(cfg.Name, matchID, tids, toRuleMetrics(m.RuleEvaluationMetrics), cfg.AcceptanceRequired, cfg.AcceptanceTimeout, now))
 		}
 		// One AcceptMatchCompleted (if acceptance was required) and one
 		// MatchmakingSucceeded per match, each carrying every ticket.
 		if acceptanceSettled {
-			s.publishEvent(ctx, cfg.Name, mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, mm.AcceptanceAccepted, now))
+			batch.add(mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, mm.AcceptanceAccepted, now))
 		}
-		s.publishEvent(ctx, cfg.Name, mm.NewMatchmakingSucceeded(cfg.Name, matchID, tids, now))
+		batch.add(mm.NewMatchmakingSucceeded(cfg.Name, matchID, tids, now))
 	}
 	return nil
 }
 
-func (s *Service) syncActiveTickets(ctx context.Context, cfg mm.Configuration, engine *flexi.Matchmaker, now time.Time) error {
+func (s *Service) syncActiveTickets(cfg mm.Configuration, engine *flexi.Matchmaker, now time.Time, batch *eventBatch) error {
 	tracker := s.tracker(cfg.Name)
 	// AcceptMatchCompleted is a match-level event: emit it at most once per
 	// match even though each ticket settles independently in this loop.
@@ -300,9 +302,9 @@ func (s *Service) syncActiveTickets(ctx context.Context, cfg mm.Configuration, e
 			if tids == nil {
 				tids = []mm.TicketID{ticket.ID()}
 			}
-			s.publishEvent(ctx, cfg.Name, mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, outcome, now))
+			batch.add(mm.NewAcceptMatchCompleted(cfg.Name, matchID, tids, outcome, now))
 		}
-		s.dispatchEvents(ctx, cfg.Name, ticket)
+		batch.addTicket(ticket)
 	}
 	return nil
 }

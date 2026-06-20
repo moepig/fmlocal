@@ -15,8 +15,11 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 	}
 	// ConfigurationName is fixed at construction, so reading it before taking the
 	// lock is race-free; everything that mutates the ticket runs under the lock.
-	defer s.lockConfiguration(ticket.ConfigurationName())()
-	engine, err := s.Engines.EngineFor(ticket.ConfigurationName())
+	name := ticket.ConfigurationName()
+	unlock := s.lockConfiguration(name)
+	batch := newEventBatch(name)
+	defer s.releaseAndFlush(ctx, unlock, batch)
+	engine, err := s.Engines.EngineFor(name)
 	if err != nil {
 		return err
 	}
@@ -50,7 +53,6 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 	// ticket in the match, carrying the cumulative acceptance status of every
 	// player who has responded so far (AWS reports each player's current state
 	// on every AcceptMatch event, not just the ones who just responded).
-	name := ticket.ConfigurationName()
 	matchID := ticket.MatchID()
 	tids := s.tracker(name).ticketsFor(matchID)
 	if tids == nil {
@@ -66,6 +68,6 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 			acceptances[pid] = accepted
 		}
 	}
-	s.publishEvent(ctx, name, mm.NewAcceptMatch(name, matchID, tids, acceptances, s.Clock.Now()))
+	batch.add(mm.NewAcceptMatch(name, matchID, tids, acceptances, s.Clock.Now()))
 	return nil
 }
