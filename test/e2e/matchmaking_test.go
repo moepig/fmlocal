@@ -61,9 +61,10 @@ const basicRuleSet = `{
 }`
 
 type eventSink struct {
-	mu     sync.Mutex
-	events []notification.EventBridgeEnvelope
-	srv    *httptest.Server
+	mu      sync.Mutex
+	events  []notification.EventBridgeEnvelope
+	rawMsgs []json.RawMessage // parallel to events: the exact envelope JSON received
+	srv     *httptest.Server
 }
 
 func newEventSink(t *testing.T) *eventSink {
@@ -85,6 +86,7 @@ func newEventSink(t *testing.T) *eventSink {
 		}
 		s.mu.Lock()
 		s.events = append(s.events, env)
+		s.rawMsgs = append(s.rawMsgs, json.RawMessage(note.Message))
 		s.mu.Unlock()
 		w.WriteHeader(200)
 	}))
@@ -102,19 +104,6 @@ func (s *eventSink) detailTypes() []string {
 	return out
 }
 
-// eventsOfType returns every received envelope whose detail.type matches typ.
-func (s *eventSink) eventsOfType(typ string) []notification.EventBridgeEnvelope {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]notification.EventBridgeEnvelope, 0)
-	for _, e := range s.events {
-		if e.Detail.Type == typ {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
 // ticketIDsOf collects the ticketIds present in an envelope's detail.tickets.
 func ticketIDsOf(env notification.EventBridgeEnvelope) []string {
 	out := make([]string, 0, len(env.Detail.Tickets))
@@ -122,6 +111,105 @@ func ticketIDsOf(env notification.EventBridgeEnvelope) []string {
 		out = append(out, tk.TicketID)
 	}
 	return out
+}
+
+// rawEnvelopesOfType returns the received envelopes of a given detail.type as
+// generic maps, so a test can assert on the exact JSON keys actually emitted
+// (catching both missing and unexpected fields, which the typed struct hides).
+func (s *eventSink) rawEnvelopesOfType(typ string) []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []map[string]any{}
+	for i, e := range s.events {
+		if e.Detail.Type != typ {
+			continue
+		}
+		var env map[string]any
+		if err := json.Unmarshal(s.rawMsgs[i], &env); err == nil {
+			out = append(out, env)
+		}
+	}
+	return out
+}
+
+func keySet(m map[string]any) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}
+
+func asMaps(v any) []map[string]any {
+	arr, _ := v.([]any)
+	out := make([]map[string]any, 0, len(arr))
+	for _, e := range arr {
+		out = append(out, e.(map[string]any))
+	}
+	return out
+}
+
+// eventShape declares the exact element set an event's JSON must contain, used
+// to verify happy-path messages exhaustively.
+type eventShape struct {
+	detailKeys     []string // exact set of detail.* keys
+	playerRequired []string // keys every player object must have
+	playerOptional []string // keys a player object may additionally have
+	gsiKeys        []string // exact set of gameSessionInfo.* keys
+}
+
+// assertEnvelopeShape verifies the EventBridge envelope wrapper is complete.
+func assertEnvelopeShape(t *testing.T, env map[string]any) {
+	t.Helper()
+	assert.ElementsMatch(t, []string{
+		"version", "id", "detail-type", "source", "account", "time", "region", "resources", "detail",
+	}, keySet(env), "envelope keys")
+	assert.Equal(t, "aws.gamelift", env["source"])
+	assert.Equal(t, "GameLift Matchmaking Event", env["detail-type"])
+	assert.Equal(t, "us-east-1", env["region"])
+	assert.Equal(t, "000000000000", env["account"])
+	// AWS uses ISO-8601 with millisecond precision.
+	assert.Regexp(t, `^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$`, env["time"])
+	res := env["resources"].([]any)
+	require.Len(t, res, 1)
+	assert.Equal(t, "arn:aws:gamelift:us-east-1:000000000000:matchmakingconfiguration/cfg", res[0])
+}
+
+// assertDetailShape verifies a detail block matches the declared shape exactly:
+// the detail key set, ticket/player key sets, and gameSessionInfo key set.
+func assertDetailShape(t *testing.T, detail map[string]any, s eventShape) {
+	t.Helper()
+	assert.ElementsMatch(t, s.detailKeys, keySet(detail), "detail keys")
+
+	tickets := asMaps(detail["tickets"])
+	require.NotEmpty(t, tickets, "tickets present")
+	for _, tk := range tickets {
+		assert.ElementsMatch(t, []string{"ticketId", "startTime", "players"}, keySet(tk), "ticket keys")
+		assert.Regexp(t, `T\d\d:\d\d:\d\d\.\d{3}Z$`, tk["startTime"], "ticket startTime millis")
+		require.NotEmpty(t, asMaps(tk["players"]), "ticket players present")
+		for _, p := range asMaps(tk["players"]) {
+			assertPlayerShape(t, p, s)
+		}
+	}
+
+	gsi, ok := detail["gameSessionInfo"].(map[string]any)
+	require.True(t, ok, "gameSessionInfo present")
+	assert.ElementsMatch(t, s.gsiKeys, keySet(gsi), "gameSessionInfo keys")
+	require.NotEmpty(t, asMaps(gsi["players"]), "gameSessionInfo players present")
+	for _, p := range asMaps(gsi["players"]) {
+		assertPlayerShape(t, p, s)
+	}
+}
+
+func assertPlayerShape(t *testing.T, p map[string]any, s eventShape) {
+	t.Helper()
+	for _, k := range s.playerRequired {
+		assert.Containsf(t, p, k, "player missing required key %q", k)
+	}
+	allowed := append(append([]string{}, s.playerRequired...), s.playerOptional...)
+	for k := range p {
+		assert.Containsf(t, allowed, k, "player has unexpected key %q (player=%v)", k, p)
+	}
 }
 
 func (s *eventSink) waitFor(t *testing.T, want string) {
@@ -276,48 +364,82 @@ func TestE2E_StandaloneMatch_NoAcceptance(t *testing.T) {
 		assert.Equal(t, "COMPLETED", string(tk.Status), id)
 	}
 	st.sink.waitFor(t, "MatchmakingSucceeded")
-	types := st.sink.detailTypes()
-	assert.Contains(t, types, "MatchmakingSearching")
-	assert.Contains(t, types, "MatchmakingSucceeded")
 
-	// AWS emits PotentialMatchCreated for every new potential match, even when
-	// acceptance is not required. Here it must advertise acceptanceRequired=false
-	// and omit acceptanceTimeout.
-	assert.Contains(t, types, "PotentialMatchCreated")
-	pmc := st.sink.eventsOfType("PotentialMatchCreated")
-	require.Len(t, pmc, 1)
-	assert.ElementsMatch(t, []string{"t1", "t2"}, ticketIDsOf(pmc[0]))
-	require.NotNil(t, pmc[0].Detail.AcceptanceRequired)
-	assert.False(t, *pmc[0].Detail.AcceptanceRequired)
-	assert.Nil(t, pmc[0].Detail.AcceptanceTimeout)
+	// The no-acceptance happy path emits exactly these three event types.
+	// Searching fires once per ticket; the rest once for the whole match.
+	searching := st.sink.rawEnvelopesOfType("MatchmakingSearching")
+	require.Len(t, searching, 2)
+	pmcs := st.sink.rawEnvelopesOfType("PotentialMatchCreated")
+	require.Len(t, pmcs, 1)
+	succeededs := st.sink.rawEnvelopesOfType("MatchmakingSucceeded")
+	require.Len(t, succeededs, 1)
 
-	// One MatchmakingSucceeded for the whole match, carrying both tickets
-	// (AWS emits a single event per match, not one per ticket).
-	succeeded := st.sink.eventsOfType("MatchmakingSucceeded")
-	require.Len(t, succeeded, 1)
-	assert.ElementsMatch(t, []string{"t1", "t2"}, ticketIDsOf(succeeded[0]))
-	assert.NotEmpty(t, succeeded[0].Detail.MatchID)
+	// --- MatchmakingSearching: single ticket, no team yet, NOT_AVAILABLE wait.
+	searchShape := eventShape{
+		detailKeys:     []string{"type", "tickets", "estimatedWaitMillis", "gameSessionInfo"},
+		playerRequired: []string{"playerId"},
+		gsiKeys:        []string{"players"},
+	}
+	for _, env := range searching {
+		assertEnvelopeShape(t, env)
+		d := env["detail"].(map[string]any)
+		assertDetailShape(t, d, searchShape)
+		assert.Equal(t, "NOT_AVAILABLE", d["estimatedWaitMillis"])
+		require.Len(t, asMaps(d["tickets"]), 1) // one ticket per searching event
+	}
 
-	// Each player carries the team it was assigned to (the rule set has red/blue).
-	var teams []string
-	for _, tk := range succeeded[0].Detail.Tickets {
-		for _, p := range tk.Players {
-			teams = append(teams, p.Team)
+	// --- PotentialMatchCreated: acceptanceRequired=false, no acceptanceTimeout,
+	// no ruleEvaluationMetrics (basic rule set has no rules), teams assigned.
+	pmcShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "acceptanceRequired", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players"},
+	}
+	pmc := pmcs[0]
+	assertEnvelopeShape(t, pmc)
+	pd := pmc["detail"].(map[string]any)
+	assertDetailShape(t, pd, pmcShape)
+	assert.Equal(t, false, pd["acceptanceRequired"])
+	assert.ElementsMatch(t, []string{"t1", "t2"}, rawTicketIDs(pd))
+	assert.ElementsMatch(t, []string{"red", "blue"}, rawPlayerTeams(pd))
+
+	// --- MatchmakingSucceeded: both tickets, teams, gameSessionInfo carries the
+	// flattened roster + matchId; STANDALONE omits all connection fields and
+	// playerSessionId.
+	succShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players", "matchId"},
+	}
+	succ := succeededs[0]
+	assertEnvelopeShape(t, succ)
+	sd := succ["detail"].(map[string]any)
+	assertDetailShape(t, sd, succShape)
+	assert.NotEmpty(t, sd["matchId"])
+	assert.ElementsMatch(t, []string{"t1", "t2"}, rawTicketIDs(sd))
+	assert.ElementsMatch(t, []string{"red", "blue"}, rawPlayerTeams(sd))
+	gsi := sd["gameSessionInfo"].(map[string]any)
+	assert.Equal(t, sd["matchId"], gsi["matchId"])
+}
+
+// rawTicketIDs / rawPlayerTeams pull values out of a raw detail map for value
+// assertions alongside the structural shape checks.
+func rawTicketIDs(detail map[string]any) []string {
+	out := []string{}
+	for _, tk := range asMaps(detail["tickets"]) {
+		out = append(out, tk["ticketId"].(string))
+	}
+	return out
+}
+
+func rawPlayerTeams(detail map[string]any) []string {
+	out := []string{}
+	for _, tk := range asMaps(detail["tickets"]) {
+		for _, p := range asMaps(tk["players"]) {
+			out = append(out, p["team"].(string))
 		}
 	}
-	assert.ElementsMatch(t, []string{"red", "blue"}, teams)
-
-	// gameSessionInfo carries the flattened roster (both players, both teams)
-	// and the match id; STANDALONE creates no session so connection info is absent.
-	gsi := succeeded[0].Detail.GameSessionInfo
-	require.NotNil(t, gsi)
-	assert.Equal(t, succeeded[0].Detail.MatchID, gsi.MatchID)
-	var gsiTeams []string
-	for _, p := range gsi.Players {
-		gsiTeams = append(gsiTeams, p.Team)
-	}
-	assert.ElementsMatch(t, []string{"red", "blue"}, gsiTeams)
-	assert.Empty(t, gsi.IPAddress)
+	return out
 }
 
 func TestE2E_AcceptanceFlow(t *testing.T) {
@@ -351,42 +473,114 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 		waitForTicketStatus(t, client, id, "COMPLETED")
 	}
 	st.sink.waitFor(t, "MatchmakingSucceeded")
-	got := st.sink.detailTypes()
-	for _, want := range []string{
-		"MatchmakingSearching",
-		"PotentialMatchCreated",
-		"AcceptMatch",
-		"AcceptMatchCompleted",
-		"MatchmakingSucceeded",
-	} {
-		assert.Truef(t, contains(got, want), "expected event %q in %v", want, got)
+
+	// The acceptance happy path emits all five event types. Searching fires once
+	// per ticket and AcceptMatch once per player accept; the grouping events
+	// (PotentialMatchCreated, AcceptMatchCompleted, MatchmakingSucceeded) fire
+	// once for the whole match.
+	searching := st.sink.rawEnvelopesOfType("MatchmakingSearching")
+	require.Len(t, searching, 2)
+	pmcs := st.sink.rawEnvelopesOfType("PotentialMatchCreated")
+	require.Len(t, pmcs, 1)
+	accepts := st.sink.rawEnvelopesOfType("AcceptMatch")
+	require.Len(t, accepts, 2)
+	completeds := st.sink.rawEnvelopesOfType("AcceptMatchCompleted")
+	require.Len(t, completeds, 1)
+	succeededs := st.sink.rawEnvelopesOfType("MatchmakingSucceeded")
+	require.Len(t, succeededs, 1)
+
+	// --- MatchmakingSearching: single ticket, no team yet, NOT_AVAILABLE wait.
+	searchShape := eventShape{
+		detailKeys:     []string{"type", "tickets", "estimatedWaitMillis", "gameSessionInfo"},
+		playerRequired: []string{"playerId"},
+		gsiKeys:        []string{"players"},
+	}
+	for _, env := range searching {
+		assertEnvelopeShape(t, env)
+		d := env["detail"].(map[string]any)
+		assertDetailShape(t, d, searchShape)
+		assert.Equal(t, "NOT_AVAILABLE", d["estimatedWaitMillis"])
+		require.Len(t, asMaps(d["tickets"]), 1)
 	}
 
-	// Each match-grouping event is emitted once for the whole match and carries
-	// both tickets.
-	for _, typ := range []string{"PotentialMatchCreated", "AcceptMatchCompleted", "MatchmakingSucceeded"} {
-		evs := st.sink.eventsOfType(typ)
-		require.Lenf(t, evs, 1, "expected exactly one %s", typ)
-		assert.ElementsMatchf(t, []string{"t1", "t2"}, ticketIDsOf(evs[0]), "%s tickets", typ)
+	// --- PotentialMatchCreated: acceptance policy + rule metrics + teams.
+	pmcShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "acceptanceRequired", "acceptanceTimeout", "ruleEvaluationMetrics", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players"},
 	}
-
-	// PotentialMatchCreated carries the engine's rule-evaluation metrics.
-	pmc := st.sink.eventsOfType("PotentialMatchCreated")[0]
-	require.NotEmpty(t, pmc.Detail.RuleEvaluationMetric)
-	var fair *notification.RuleEvalMetric
-	for i := range pmc.Detail.RuleEvaluationMetric {
-		if pmc.Detail.RuleEvaluationMetric[i].RuleName == "FairSkill" {
-			fair = &pmc.Detail.RuleEvaluationMetric[i]
+	pmc := pmcs[0]
+	assertEnvelopeShape(t, pmc)
+	pd := pmc["detail"].(map[string]any)
+	assertDetailShape(t, pd, pmcShape)
+	assert.Equal(t, true, pd["acceptanceRequired"])
+	assert.Equal(t, float64(30), pd["acceptanceTimeout"]) // cfg AcceptanceTimeout 30s, emitted in seconds
+	assert.ElementsMatch(t, []string{"t1", "t2"}, rawTicketIDs(pd))
+	assert.ElementsMatch(t, []string{"red", "blue"}, rawPlayerTeams(pd))
+	metrics := asMaps(pd["ruleEvaluationMetrics"])
+	require.NotEmpty(t, metrics)
+	var sawFair bool
+	for _, m := range metrics {
+		assert.ElementsMatch(t, []string{"ruleName", "passedCount", "failedCount"}, keySet(m), "metric keys")
+		if m["ruleName"] == "FairSkill" {
+			sawFair = true
+			assert.GreaterOrEqual(t, m["passedCount"].(float64), float64(1))
 		}
 	}
-	require.NotNil(t, fair, "FairSkill metric present")
-	assert.GreaterOrEqual(t, fair.PassedCount, 1)
+	assert.True(t, sawFair, "FairSkill metric present")
 
-	// With acceptance enabled, PotentialMatchCreated advertises the policy.
-	require.NotNil(t, pmc.Detail.AcceptanceRequired)
-	assert.True(t, *pmc.Detail.AcceptanceRequired)
-	require.NotNil(t, pmc.Detail.AcceptanceTimeout)
-	assert.Greater(t, *pmc.Detail.AcceptanceTimeout, 0)
+	// --- AcceptMatch: per-accept event, both tickets, accepted on the actor.
+	acceptShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		playerOptional: []string{"accepted"},
+		gsiKeys:        []string{"players"},
+	}
+	acceptedTrue := map[string]bool{}
+	for _, env := range accepts {
+		assertEnvelopeShape(t, env)
+		d := env["detail"].(map[string]any)
+		assertDetailShape(t, d, acceptShape)
+		assert.ElementsMatch(t, []string{"t1", "t2"}, rawTicketIDs(d))
+		for _, tk := range asMaps(d["tickets"]) {
+			for _, p := range asMaps(tk["players"]) {
+				if acc, ok := p["accepted"]; ok && acc == true {
+					acceptedTrue[p["playerId"].(string)] = true
+				}
+			}
+		}
+	}
+	// Across the two AcceptMatch events both players are recorded as accepted.
+	assert.Equal(t, map[string]bool{"p-t1": true, "p-t2": true}, acceptedTrue)
+
+	// --- AcceptMatchCompleted: settled as Accepted, both tickets, teams.
+	completedShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "acceptance", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players"},
+	}
+	comp := completeds[0]
+	assertEnvelopeShape(t, comp)
+	cd := comp["detail"].(map[string]any)
+	assertDetailShape(t, cd, completedShape)
+	assert.Equal(t, "Accepted", cd["acceptance"])
+	assert.ElementsMatch(t, []string{"t1", "t2"}, rawTicketIDs(cd))
+
+	// --- MatchmakingSucceeded: both tickets, teams, gameSessionInfo + matchId.
+	succShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players", "matchId"},
+	}
+	succ := succeededs[0]
+	assertEnvelopeShape(t, succ)
+	sd := succ["detail"].(map[string]any)
+	assertDetailShape(t, sd, succShape)
+	assert.NotEmpty(t, sd["matchId"])
+	assert.ElementsMatch(t, []string{"t1", "t2"}, rawTicketIDs(sd))
+	assert.ElementsMatch(t, []string{"red", "blue"}, rawPlayerTeams(sd))
+	gsi := sd["gameSessionInfo"].(map[string]any)
+	assert.Equal(t, sd["matchId"], gsi["matchId"])
 }
 
 func TestE2E_StopMatchmakingCancels(t *testing.T) {
@@ -421,13 +615,4 @@ func TestE2E_BackfillReturnsUnsupportedOperation(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "UnsupportedOperationException") || strings.Contains(err.Error(), "not supported"))
-}
-
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }

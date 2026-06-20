@@ -76,7 +76,7 @@ func TestE2E_SQSEventBridge_RealElasticMQ(t *testing.T) {
 	require.NoError(t, err)
 
 	deadline := time.Now().Add(15 * time.Second)
-	foundTypes := map[string]bool{}
+	byType := map[string][]map[string]any{} // raw envelopes delivered over SQS, keyed by detail.type
 	for time.Now().Before(deadline) {
 		out, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 			QueueUrl:            aws.String(queueURL),
@@ -85,22 +85,73 @@ func TestE2E_SQSEventBridge_RealElasticMQ(t *testing.T) {
 		})
 		require.NoError(t, err)
 		for _, m := range out.Messages {
-			var env notification.EventBridgeEnvelope
+			var env map[string]any
 			require.NoError(t, json.Unmarshal([]byte(aws.ToString(m.Body)), &env))
-			foundTypes[env.Detail.Type] = true
-			assert.Equal(t, "aws.gamelift", env.Source)
-			assert.Equal(t, "GameLift Matchmaking Event", env.DetailType)
+			typ := env["detail"].(map[string]any)["type"].(string)
+			byType[typ] = append(byType[typ], env)
 			_, _ = sqsClient.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 				QueueUrl:      aws.String(queueURL),
 				ReceiptHandle: m.ReceiptHandle,
 			})
 		}
-		if foundTypes["MatchmakingSucceeded"] {
+		if len(byType["MatchmakingSucceeded"]) > 0 {
 			break
 		}
 	}
-	assert.True(t, foundTypes["MatchmakingSearching"], "expected MatchmakingSearching, got %v", foundTypes)
-	assert.True(t, foundTypes["MatchmakingSucceeded"], "expected MatchmakingSucceeded, got %v", foundTypes)
+
+	// The message bodies delivered over real SQS must carry the full element set
+	// — identical to the HTTP path, since both share the translator's Marshal.
+	require.NotEmpty(t, byType["MatchmakingSearching"], "got %v", keySet(toAnyMap(byType)))
+	require.NotEmpty(t, byType["PotentialMatchCreated"])
+	require.NotEmpty(t, byType["MatchmakingSucceeded"])
+
+	searchShape := eventShape{
+		detailKeys:     []string{"type", "tickets", "estimatedWaitMillis", "gameSessionInfo"},
+		playerRequired: []string{"playerId"},
+		gsiKeys:        []string{"players"},
+	}
+	for _, env := range byType["MatchmakingSearching"] {
+		assertEnvelopeShape(t, env)
+		d := env["detail"].(map[string]any)
+		assertDetailShape(t, d, searchShape)
+		assert.Equal(t, "NOT_AVAILABLE", d["estimatedWaitMillis"])
+	}
+
+	pmcShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "acceptanceRequired", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players"},
+	}
+	pmc := byType["PotentialMatchCreated"][0]
+	assertEnvelopeShape(t, pmc)
+	pd := pmc["detail"].(map[string]any)
+	assertDetailShape(t, pd, pmcShape)
+	assert.Equal(t, false, pd["acceptanceRequired"])
+	assert.ElementsMatch(t, []string{"tk1", "tk2"}, rawTicketIDs(pd))
+	assert.ElementsMatch(t, []string{"red", "blue"}, rawPlayerTeams(pd))
+
+	succShape := eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players", "matchId"},
+	}
+	succ := byType["MatchmakingSucceeded"][0]
+	assertEnvelopeShape(t, succ)
+	sd := succ["detail"].(map[string]any)
+	assertDetailShape(t, sd, succShape)
+	assert.NotEmpty(t, sd["matchId"])
+	assert.ElementsMatch(t, []string{"tk1", "tk2"}, rawTicketIDs(sd))
+	assert.ElementsMatch(t, []string{"red", "blue"}, rawPlayerTeams(sd))
+	assert.Equal(t, sd["matchId"], sd["gameSessionInfo"].(map[string]any)["matchId"])
+}
+
+// toAnyMap adapts a typed map for keySet in diagnostic messages.
+func toAnyMap[V any](m map[string]V) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 func newSQSClient(t *testing.T, ctx context.Context, endpoint string) *sqs.Client {
@@ -169,7 +220,10 @@ func buildSQSBackedStack(t *testing.T, queueURL string, client *sqs.Client) *sqs
 			}
 			players := make([]notification.PlayerDetail, 0, len(tk.Players()))
 			for _, p := range tk.Players() {
-				players = append(players, notification.PlayerDetail{PlayerID: string(p.ID)})
+				players = append(players, notification.PlayerDetail{
+					PlayerID: string(p.ID),
+					Team:     tk.PlayerTeam(mm.PlayerID(p.ID)),
+				})
 			}
 			return notification.TicketDetail{
 				TicketID:  string(tk.ID()),
