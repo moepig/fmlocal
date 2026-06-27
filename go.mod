@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.44.0
 	github.com/aws/smithy-go v1.27.2
 	github.com/google/uuid v1.6.0
-	github.com/moepig/flexi v0.1.0
+	github.com/moepig/flexi v0.2.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.43.0
 	go.uber.org/mock v0.6.0

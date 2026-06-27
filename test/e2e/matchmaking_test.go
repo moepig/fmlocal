@@ -42,8 +42,8 @@ const acceptanceRuleSet = `{
     {
       "name": "FairSkill",
       "type": "distance",
-      "measurements": ["avg(teams[red].players.skill)"],
-      "referenceValue": "avg(teams[blue].players.skill)",
+      "measurements": ["avg(teams[red].players.attributes[skill])"],
+      "referenceValue": "avg(teams[blue].players.attributes[skill])",
       "maxDistance": 50
     }
   ],
