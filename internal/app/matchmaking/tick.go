@@ -72,9 +72,11 @@ func (pt *proposalTracker) forget(id mm.MatchID) {
 }
 
 func (s *Service) tracker(name mm.ConfigurationName) *proposalTracker {
-	s.trackersOnce.Do(func() { s.trackers = map[mm.ConfigurationName]*proposalTracker{} })
 	s.trackersMu.Lock()
 	defer s.trackersMu.Unlock()
+	if s.trackers == nil {
+		s.trackers = map[mm.ConfigurationName]*proposalTracker{}
+	}
 	pt, ok := s.trackers[name]
 	if !ok {
 		pt = newProposalTracker()

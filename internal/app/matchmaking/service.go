@@ -26,9 +26,8 @@ type Service struct {
 	configurations map[mm.ConfigurationName]mm.Configuration
 	ruleSets       map[mm.RuleSetName]mm.RuleSet
 
-	trackersOnce sync.Once
-	trackersMu   sync.Mutex
-	trackers     map[mm.ConfigurationName]*proposalTracker
+	trackersMu sync.Mutex
+	trackers   map[mm.ConfigurationName]*proposalTracker
 
 	cmdMu    sync.Mutex
 	cmdLocks map[mm.ConfigurationName]*sync.Mutex
