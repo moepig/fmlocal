@@ -139,6 +139,15 @@ func (t *Translator) Marshal(e mm.Event) ([]byte, error) {
 
 func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	d := Detail{Type: e.EventName()}
+	// Terminal single-ticket events (Failed / TimedOut / Cancelled) share the
+	// same detail shape; fill assembles it.
+	fill := func(matchID mm.MatchID, ticketID mm.TicketID, reason, message string, metrics []mm.RuleEvaluationMetric) {
+		d.MatchID = string(matchID)
+		d.Reason = reason
+		d.Message = message
+		d.Tickets = t.lookupTickets(ticketID)
+		d.RuleEvaluationMetric = toWireRuleMetrics(metrics)
+	}
 	switch ev := e.(type) {
 	case mm.EventTicketSearchingStarted:
 		d.Tickets = t.lookupTickets(ev.TicketID())
@@ -177,23 +186,12 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		d.MatchID = string(ev.MatchID())
 		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
 	case mm.EventMatchmakingFailed:
-		d.MatchID = string(ev.MatchID())
-		d.Reason = ev.Reason()
-		d.Message = ev.Message()
-		d.Tickets = t.lookupTickets(ev.TicketID())
-		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
+		fill(ev.MatchID(), ev.TicketID(), ev.Reason(), ev.Message(), ev.RuleMetrics())
 	case mm.EventMatchmakingTimedOut:
-		d.MatchID = string(ev.MatchID())
-		d.Reason = ev.Reason()
-		d.Message = ev.Message()
-		d.Tickets = t.lookupTickets(ev.TicketID())
-		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
+		fill(ev.MatchID(), ev.TicketID(), ev.Reason(), ev.Message(), ev.RuleMetrics())
 	case mm.EventMatchmakingCancelled:
-		d.MatchID = string(ev.MatchID())
-		d.Reason = "Cancelled"
-		d.Message = "Cancelled by request."
-		d.Tickets = t.lookupTickets(ev.TicketID())
-		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
+		// AWS emits a fixed reason/message for cancellations.
+		fill(ev.MatchID(), ev.TicketID(), "Cancelled", "Cancelled by request.", ev.RuleMetrics())
 	default:
 		return Detail{}, fmt.Errorf("notification: unknown event %T", e)
 	}
