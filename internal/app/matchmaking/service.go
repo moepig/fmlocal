@@ -1,10 +1,12 @@
 package matchmaking
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/moepig/fmlocal/internal/app/ports"
@@ -113,7 +115,7 @@ func (s *Service) TicketsByConfiguration(name mm.ConfigurationName) []*mm.Ticket
 			out = append(out, t)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID() < out[j].ID() })
+	slices.SortFunc(out, func(a, b *mm.Ticket) int { return cmp.Compare(a.ID(), b.ID()) })
 	return out
 }
 
@@ -131,7 +133,7 @@ func (s *Service) ActiveTicketIDsByConfiguration(name mm.ConfigurationName) []mm
 			out = append(out, t.ID())
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 
@@ -151,12 +153,8 @@ func (s *Service) GetConfiguration(name mm.ConfigurationName) (mm.Configuration,
 func (s *Service) ListConfigurations() []mm.Configuration {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
-	out := make([]mm.Configuration, 0, len(s.configurations))
-	for _, c := range s.configurations {
-		out = append(out, c)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return slices.SortedFunc(maps.Values(s.configurations),
+		func(a, b mm.Configuration) int { return cmp.Compare(a.Name, b.Name) })
 }
 
 // GetRuleSet returns the rule set by name, or mm.ErrRuleSetNotFound.
@@ -174,12 +172,8 @@ func (s *Service) GetRuleSet(name mm.RuleSetName) (mm.RuleSet, error) {
 func (s *Service) ListRuleSets() []mm.RuleSet {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
-	out := make([]mm.RuleSet, 0, len(s.ruleSets))
-	for _, rs := range s.ruleSets {
-		out = append(out, rs)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return slices.SortedFunc(maps.Values(s.ruleSets),
+		func(a, b mm.RuleSet) int { return cmp.Compare(a.Name, b.Name) })
 }
 
 // SaveTicket is the single write-path for the ticket map.
