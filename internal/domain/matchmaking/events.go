@@ -73,7 +73,7 @@ type EventTicketSearchingStarted struct {
 	ticketID TicketID
 }
 
-func (e EventTicketSearchingStarted) EventName() string  { return "MatchmakingSearching" }
+func (e EventTicketSearchingStarted) EventName() string  { return EventNameMatchmakingSearching }
 func (e EventTicketSearchingStarted) TicketID() TicketID { return e.ticketID }
 
 // Match-grouping events.
@@ -111,12 +111,12 @@ func NewPotentialMatchCreated(cfg ConfigurationName, matchID MatchID, ticketIDs 
 	}
 }
 
-func (e EventTicketAssignedToProposal) EventName() string     { return "PotentialMatchCreated" }
-func (e EventTicketAssignedToProposal) TicketIDs() []TicketID { return e.ticketIDs }
-func (e EventTicketAssignedToProposal) MatchID() MatchID                     { return e.matchID }
-func (e EventTicketAssignedToProposal) RuleMetrics() []RuleEvaluationMetric  { return e.ruleMetrics }
-func (e EventTicketAssignedToProposal) AcceptanceRequired() bool             { return e.acceptanceRequired }
-func (e EventTicketAssignedToProposal) AcceptanceTimeout() time.Duration     { return e.acceptanceTimeout }
+func (e EventTicketAssignedToProposal) EventName() string                   { return EventNamePotentialMatchCreated }
+func (e EventTicketAssignedToProposal) TicketIDs() []TicketID               { return e.ticketIDs }
+func (e EventTicketAssignedToProposal) MatchID() MatchID                    { return e.matchID }
+func (e EventTicketAssignedToProposal) RuleMetrics() []RuleEvaluationMetric { return e.ruleMetrics }
+func (e EventTicketAssignedToProposal) AcceptanceRequired() bool            { return e.acceptanceRequired }
+func (e EventTicketAssignedToProposal) AcceptanceTimeout() time.Duration    { return e.acceptanceTimeout }
 
 // EventPlayerAcceptanceRecorded maps to AcceptMatch: one or more players in the
 // match responded Accept or Reject. The event carries every ticket in the match
@@ -137,10 +137,10 @@ func NewAcceptMatch(cfg ConfigurationName, matchID MatchID, ticketIDs []TicketID
 	return EventPlayerAcceptanceRecorded{baseEvent: baseEvent{configName: cfg, occurredAt: now}, matchID: matchID, ticketIDs: ticketIDs, acceptances: acceptances}
 }
 
-func (e EventPlayerAcceptanceRecorded) EventName() string     { return "AcceptMatch" }
-func (e EventPlayerAcceptanceRecorded) TicketIDs() []TicketID { return e.ticketIDs }
-func (e EventPlayerAcceptanceRecorded) MatchID() MatchID                     { return e.matchID }
-func (e EventPlayerAcceptanceRecorded) Acceptances() map[PlayerID]bool       { return e.acceptances }
+func (e EventPlayerAcceptanceRecorded) EventName() string              { return EventNameAcceptMatch }
+func (e EventPlayerAcceptanceRecorded) TicketIDs() []TicketID          { return e.ticketIDs }
+func (e EventPlayerAcceptanceRecorded) MatchID() MatchID               { return e.matchID }
+func (e EventPlayerAcceptanceRecorded) Acceptances() map[PlayerID]bool { return e.acceptances }
 
 // EventAcceptanceCompleted maps to AcceptMatchCompleted: the match's acceptance
 // phase terminally settled (all accepted, rejected, or timed out).
@@ -156,10 +156,10 @@ func NewAcceptMatchCompleted(cfg ConfigurationName, matchID MatchID, ticketIDs [
 	return EventAcceptanceCompleted{baseEvent: baseEvent{configName: cfg, occurredAt: now}, matchID: matchID, ticketIDs: ticketIDs, outcome: outcome}
 }
 
-func (e EventAcceptanceCompleted) EventName() string     { return "AcceptMatchCompleted" }
-func (e EventAcceptanceCompleted) TicketIDs() []TicketID { return e.ticketIDs }
-func (e EventAcceptanceCompleted) MatchID() MatchID                     { return e.matchID }
-func (e EventAcceptanceCompleted) Outcome() AcceptanceOutcome           { return e.outcome }
+func (e EventAcceptanceCompleted) EventName() string          { return EventNameAcceptMatchCompleted }
+func (e EventAcceptanceCompleted) TicketIDs() []TicketID      { return e.ticketIDs }
+func (e EventAcceptanceCompleted) MatchID() MatchID           { return e.matchID }
+func (e EventAcceptanceCompleted) Outcome() AcceptanceOutcome { return e.outcome }
 
 // EventMatchmakingSucceeded maps to MatchmakingSucceeded: the match completed
 // successfully. Carries every ticket in the match.
@@ -174,7 +174,7 @@ func NewMatchmakingSucceeded(cfg ConfigurationName, matchID MatchID, ticketIDs [
 	return EventMatchmakingSucceeded{baseEvent: baseEvent{configName: cfg, occurredAt: now}, matchID: matchID, ticketIDs: ticketIDs}
 }
 
-func (e EventMatchmakingSucceeded) EventName() string     { return "MatchmakingSucceeded" }
+func (e EventMatchmakingSucceeded) EventName() string     { return EventNameMatchmakingSucceeded }
 func (e EventMatchmakingSucceeded) TicketIDs() []TicketID { return e.ticketIDs }
 func (e EventMatchmakingSucceeded) MatchID() MatchID      { return e.matchID }
 
@@ -188,7 +188,7 @@ type EventMatchmakingFailed struct {
 	ruleMetrics []RuleEvaluationMetric
 }
 
-func (e EventMatchmakingFailed) EventName() string                   { return "MatchmakingFailed" }
+func (e EventMatchmakingFailed) EventName() string                   { return EventNameMatchmakingFailed }
 func (e EventMatchmakingFailed) TicketID() TicketID                  { return e.ticketID }
 func (e EventMatchmakingFailed) MatchID() MatchID                    { return e.matchID }
 func (e EventMatchmakingFailed) Reason() string                      { return e.reason }
@@ -205,7 +205,7 @@ type EventMatchmakingTimedOut struct {
 	ruleMetrics []RuleEvaluationMetric
 }
 
-func (e EventMatchmakingTimedOut) EventName() string                   { return "MatchmakingTimedOut" }
+func (e EventMatchmakingTimedOut) EventName() string                   { return EventNameMatchmakingTimedOut }
 func (e EventMatchmakingTimedOut) TicketID() TicketID                  { return e.ticketID }
 func (e EventMatchmakingTimedOut) MatchID() MatchID                    { return e.matchID }
 func (e EventMatchmakingTimedOut) Reason() string                      { return e.reason }
@@ -220,7 +220,7 @@ type EventMatchmakingCancelled struct {
 	ruleMetrics []RuleEvaluationMetric
 }
 
-func (e EventMatchmakingCancelled) EventName() string                   { return "MatchmakingCancelled" }
+func (e EventMatchmakingCancelled) EventName() string                   { return EventNameMatchmakingCancelled }
 func (e EventMatchmakingCancelled) TicketID() TicketID                  { return e.ticketID }
 func (e EventMatchmakingCancelled) MatchID() MatchID                    { return e.matchID }
 func (e EventMatchmakingCancelled) RuleMetrics() []RuleEvaluationMetric { return e.ruleMetrics }
