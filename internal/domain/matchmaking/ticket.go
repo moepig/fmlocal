@@ -2,23 +2,10 @@ package matchmaking
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"time"
-
-	"github.com/moepig/flexi"
 )
-
-// clonePlayers makes a shallow copy of a flexi.Player slice. flexi.Player
-// fields (Attributes, Latencies) are maps/slices that are safe to share as
-// read-only, which is sufficient here since Ticket never mutates them.
-func clonePlayers(src []flexi.Player) []flexi.Player {
-	if src == nil {
-		return nil
-	}
-	out := make([]flexi.Player, len(src))
-	copy(out, src)
-	return out
-}
 
 // Ticket is the aggregate root of the matchmaking bounded context. It owns
 // its status transitions: external callers never mutate fields directly but
@@ -69,9 +56,11 @@ func NewTicket(id TicketID, cfg Configuration, players []Player, now time.Time) 
 		id:                id,
 		configurationName: cfg.Name,
 		configurationARN:  cfg.ARN,
-		players:           clonePlayers(players),
-		status:            StatusQueued,
-		startTime:         now,
+		// Shallow copy: player fields (Attributes, Latencies) are maps/slices
+		// that are safe to share read-only, and Ticket never mutates them.
+		players:   slices.Clone(players),
+		status:    StatusQueued,
+		startTime: now,
 	}
 	t.recordEvent(EventTicketSearchingStarted{
 		baseEvent: baseEvent{configName: cfg.Name, occurredAt: now},
@@ -85,7 +74,7 @@ func (t *Ticket) ID() TicketID                         { return t.id }
 func (t *Ticket) ConfigurationName() ConfigurationName { return t.configurationName }
 func (t *Ticket) ConfigurationARN() string             { return t.configurationARN }
 func (t *Ticket) StartTime() time.Time                 { return t.startTime }
-func (t *Ticket) Players() []Player                    { return clonePlayers(t.players) }
+func (t *Ticket) Players() []Player                    { return slices.Clone(t.players) }
 
 func (t *Ticket) Status() TicketStatus {
 	t.mu.RLock()

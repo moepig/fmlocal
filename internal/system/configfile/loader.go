@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"time"
 
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
@@ -98,7 +99,7 @@ func LoadFile(path string) (*Loaded, error) {
 			URL: p.URL, QueueURL: p.QueueURL,
 			AWSEndpoint: p.AWSEndpoint, AWSRegion: p.AWSRegion,
 			AccessKey: p.AccessKey, SecretKey: p.SecretKey,
-			OnlyEvents: append([]string(nil), p.OnlyEvents...),
+			OnlyEvents: slices.Clone(p.OnlyEvents),
 		})
 	}
 
@@ -114,7 +115,7 @@ func LoadFile(path string) (*Loaded, error) {
 			AcceptanceTimeout:        time.Duration(mc.AcceptanceTimeoutSeconds) * time.Second,
 			BackfillMode:             mm.BackfillMode(mc.BackfillMode),
 			FlexMatchMode:            mm.FlexMatchMode(defaultString(mc.FlexMatchMode, string(mm.FlexMatchModeStandalone))),
-			NotificationTargetIDs:    append([]string(nil), mc.NotificationTargets...),
+			NotificationTargetIDs:    slices.Clone(mc.NotificationTargets),
 		}
 		bindings = append(bindings, ConfigurationBinding{Configuration: cfg, PublisherIDs: mc.NotificationTargets})
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -43,9 +44,7 @@ func (pt *proposalTracker) assign(ids []mm.TicketID, id mm.MatchID) {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 	pt.matchIDs[proposalKey(ids)] = id
-	cp := make([]mm.TicketID, len(ids))
-	copy(cp, ids)
-	pt.byMatch[id] = cp
+	pt.byMatch[id] = slices.Clone(ids)
 }
 
 // ticketsFor returns the full ticket roster recorded for a match, or nil if the
