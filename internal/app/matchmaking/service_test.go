@@ -96,7 +96,7 @@ func setupWithPublisher(t *testing.T, ruleset string, acceptance bool, pub ports
 		AcceptanceTimeout:  10 * time.Second,
 	}
 	rs := mm.RuleSet{Name: "rs1", Body: []byte(ruleset)}
-	engine, err := flexi.New(rs.Body, flexi.WithClock(clk))
+	engine, err := appmm.BuildEngine(cfg, rs, flexi.WithClock(clk))
 	require.NoError(t, err)
 	resolver := appmm.NewStaticEngineResolver()
 	resolver.Register(cfg.Name, engine)

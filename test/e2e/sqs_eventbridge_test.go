@@ -197,7 +197,7 @@ func buildSQSBackedStack(t *testing.T, queueURL string, client *sqs.Client) *sqs
 	}
 	rs := mm.RuleSet{Name: "1v1", ARN: cfg.RuleSetARN, Body: rsBody}
 	
-	engine, err := flexi.New(rs.Body, flexi.WithClock(clk))
+	engine, err := appmm.BuildEngine(cfg, rs, flexi.WithClock(clk))
 	require.NoError(t, err)
 	resolver := appmm.NewStaticEngineResolver()
 	resolver.Register(cfg.Name, engine)

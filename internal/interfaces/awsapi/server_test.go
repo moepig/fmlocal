@@ -49,8 +49,8 @@ func setup(t *testing.T) *harness {
 		RequestTimeout: 60 * time.Second,
 	}
 	rs := mm.RuleSet{Name: "1v1", ARN: cfg.RuleSetARN, Body: []byte(testRuleSet)}
-	
-	engine, err := flexi.New(rs.Body, flexi.WithClock(clk))
+
+	engine, err := appmm.BuildEngine(cfg, rs, flexi.WithClock(clk))
 	require.NoError(t, err)
 	resolver := appmm.NewStaticEngineResolver()
 	resolver.Register(cfg.Name, engine)
@@ -307,13 +307,13 @@ func TestAcceptMatch_Success(t *testing.T) {
 	  "acceptanceTimeoutSeconds": 30
 	}`
 	clk := sysclock.NewFake(time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC))
-	engine2, err := flexi.New([]byte(acceptRS), flexi.WithClock(clk))
-	require.NoError(t, err)
 	cfg2 := mm.Configuration{
 		Name: "accept", RuleSetName: "1v1-accept", ARN: "arn:aws:gamelift:us-east-1:000000000000:matchmakingconfiguration/accept",
 		FlexMatchMode: mm.FlexMatchModeStandalone, RequestTimeout: 60 * time.Second,
 		AcceptanceRequired: true, AcceptanceTimeout: 30 * time.Second,
 	}
+	engine2, err := appmm.BuildEngine(cfg2, mm.RuleSet{Name: "1v1-accept", Body: []byte(acceptRS)}, flexi.WithClock(clk))
+	require.NoError(t, err)
 	h.svc.Engines.(*appmm.StaticEngineResolver).Register(cfg2.Name, engine2)
 	h.svc.LoadConfigurations([]mm.Configuration{
 		{Name: "c1", ARN: "arn:...", RuleSetName: "1v1", FlexMatchMode: mm.FlexMatchModeStandalone, RequestTimeout: 60 * time.Second},

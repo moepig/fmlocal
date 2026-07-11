@@ -73,7 +73,7 @@ func run(cfg *configfile.Loaded, logger *slog.Logger) error {
 	names := make([]mm.ConfigurationName, 0, len(cfg.Configurations))
 	for _, b := range cfg.Configurations {
 		rs := findRuleSet(cfg.RuleSets, b.Configuration.RuleSetName)
-		engine, err := flexi.New(rs.Body, flexi.WithClock(clk))
+		engine, err := appmm.BuildEngine(b.Configuration, rs, flexi.WithClock(clk))
 		if err != nil {
 			return fmt.Errorf("engine for %q: %w", b.Configuration.Name, err)
 		}
