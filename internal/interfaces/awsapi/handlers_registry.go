@@ -9,7 +9,7 @@ import (
 
 func (s *Server) handleDescribeConfigurations(r *http.Request, body []byte) (any, error) {
 	var in DescribeMatchmakingConfigurationsInput
-	if err := decodeJSON(body, &in); err != nil {
+	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
 	cfgs, err := s.service.DescribeConfigurations(r.Context(), appmm.DescribeConfigurationsQuery{
@@ -28,7 +28,7 @@ func (s *Server) handleDescribeConfigurations(r *http.Request, body []byte) (any
 
 func (s *Server) handleDescribeRuleSets(r *http.Request, body []byte) (any, error) {
 	var in DescribeMatchmakingRuleSetsInput
-	if err := decodeJSON(body, &in); err != nil {
+	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
 	rs, err := s.service.DescribeRuleSets(r.Context(), appmm.DescribeRuleSetsQuery{Names: mm.ToTyped[mm.RuleSetName](in.Names)})
@@ -44,7 +44,7 @@ func (s *Server) handleDescribeRuleSets(r *http.Request, body []byte) (any, erro
 
 func (s *Server) handleValidateRuleSet(r *http.Request, body []byte) (any, error) {
 	var in ValidateMatchmakingRuleSetInput
-	if err := decodeJSON(body, &in); err != nil {
+	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
 	if err := s.service.ValidateRuleSet(r.Context(), appmm.ValidateRuleSetCommand{Body: []byte(in.RuleSetBody)}); err != nil {

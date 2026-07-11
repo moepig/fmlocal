@@ -13,7 +13,7 @@ const maxStartMatchmakingPlayers = 10
 
 func (s *Server) handleStartMatchmaking(r *http.Request, body []byte) (any, error) {
 	var in StartMatchmakingInput
-	if err := decodeJSON(body, &in); err != nil {
+	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
 	if len(in.Players) == 0 {
@@ -44,7 +44,7 @@ func (s *Server) handleStartMatchmaking(r *http.Request, body []byte) (any, erro
 
 func (s *Server) handleStopMatchmaking(r *http.Request, body []byte) (any, error) {
 	var in StopMatchmakingInput
-	if err := decodeJSON(body, &in); err != nil {
+	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
 	if in.TicketID == "" {
@@ -60,7 +60,7 @@ func (s *Server) handleStopMatchmaking(r *http.Request, body []byte) (any, error
 
 func (s *Server) handleDescribeMatchmaking(r *http.Request, body []byte) (any, error) {
 	var in DescribeMatchmakingInput
-	if err := decodeJSON(body, &in); err != nil {
+	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
 	if len(in.TicketIDs) == 0 {
@@ -79,7 +79,7 @@ func (s *Server) handleDescribeMatchmaking(r *http.Request, body []byte) (any, e
 
 func (s *Server) handleAcceptMatch(r *http.Request, body []byte) (any, error) {
 	var in AcceptMatchInput
-	if err := decodeJSON(body, &in); err != nil {
+	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
 	if in.TicketID == "" {

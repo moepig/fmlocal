@@ -142,6 +142,18 @@ func TestStartMatchmaking_MoreThanTenPlayersIsRejected(t *testing.T) {
 	assert.Contains(t, string(body), "InvalidRequestException")
 }
 
+func TestStartMatchmaking_UnknownFieldsAreIgnored(t *testing.T) {
+	h := setup(t)
+	// The AWS JSON protocol ignores unknown members; a newer SDK (or a sloppy
+	// client) sending extra fields must not fail against the emulator.
+	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
+	  "ConfigurationName": "c1",
+	  "FutureSDKField": true,
+	  "Players": [{"PlayerId": "p1"}]
+	}`)
+	assert.Equal(t, 200, code, "body: %s", body)
+}
+
 func TestStartMatchmaking_UnknownConfigurationIsNotFound(t *testing.T) {
 	h := setup(t)
 	code, body := call(t, h.httpSrv, "StartMatchmaking", `{

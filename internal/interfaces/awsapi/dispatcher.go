@@ -143,14 +143,26 @@ func (s *Server) writeCBORResponse(w http.ResponseWriter, action string, out any
 	_, _ = w.Write(cborBytes)
 }
 
-func decodeJSON(body []byte, dst any) error {
+// decodeJSON unmarshals a request body. Unknown members are ignored — the AWS
+// JSON protocol tolerates them, so a newer SDK sending fields fmlocal does not
+// model yet must still succeed — but they are surfaced as a warning to help
+// diagnose silently dropped input.
+func (s *Server) decodeJSON(body []byte, dst any) error {
 	if len(body) == 0 {
 		return nil
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return newInvalidRequest("parse json body: %v", err)
+	err := dec.Decode(dst)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if strings.Contains(err.Error(), "unknown field") {
+		s.logger.Warn("ignoring unknown field in request body", "error", err.Error())
+		if err := json.Unmarshal(body, dst); err != nil {
+			return newInvalidRequest("parse json body: %v", err)
+		}
+		return nil
+	}
+	return newInvalidRequest("parse json body: %v", err)
 }
