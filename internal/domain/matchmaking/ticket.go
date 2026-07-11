@@ -35,7 +35,6 @@ type Ticket struct {
 	endTime           time.Time
 	matchID           MatchID
 	cancelByAPI       bool
-	estimatedWait     *time.Duration
 	playerTeams       map[string]string
 	playerAcceptances map[string]bool
 	ruleMetrics       []RuleEvaluationMetric
@@ -110,12 +109,6 @@ func (t *Ticket) CancelRequestedByAPI() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.cancelByAPI
-}
-
-func (t *Ticket) EstimatedWait() *time.Duration {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.estimatedWait
 }
 
 // PlayerTeam returns the team a player was assigned to when the match formed,

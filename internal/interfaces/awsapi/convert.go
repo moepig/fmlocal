@@ -97,10 +97,6 @@ func ticketToDTO(t *mm.Ticket) MatchmakingTicket {
 	if !t.EndTime().IsZero() {
 		dto.EndTime = unixSeconds(t.EndTime())
 	}
-	if w := t.EstimatedWait(); w != nil {
-		v := int(w.Seconds())
-		dto.EstimatedWaitTime = &v
-	}
 	return dto
 }
 
