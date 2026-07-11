@@ -173,7 +173,7 @@ func (t *Ticket) PullEvents() []Event {
 func (t *Ticket) AssignToProposal(matchID MatchID, now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusRequiresAcceptance, now); err != nil {
+	if err := t.transition(StatusRequiresAcceptance); err != nil {
 		return err
 	}
 	t.matchID = matchID
@@ -221,7 +221,7 @@ func (t *Ticket) PlayerAcceptances() map[PlayerID]bool {
 func (t *Ticket) MoveToPlacing(matchID MatchID, now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusPlacing, now); err != nil {
+	if err := t.transition(StatusPlacing); err != nil {
 		return err
 	}
 	if matchID != "" {
@@ -235,7 +235,7 @@ func (t *Ticket) MoveToPlacing(matchID MatchID, now time.Time) error {
 func (t *Ticket) Complete(now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusCompleted, now); err != nil {
+	if err := t.transition(StatusCompleted); err != nil {
 		return err
 	}
 	t.endTime = now
@@ -252,7 +252,7 @@ func (t *Ticket) Complete(now time.Time) error {
 func (t *Ticket) MarkFailed(reason, message string, now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusFailed, now); err != nil {
+	if err := t.transition(StatusFailed); err != nil {
 		return err
 	}
 	t.endTime = now
@@ -270,7 +270,7 @@ func (t *Ticket) MarkFailed(reason, message string, now time.Time) error {
 func (t *Ticket) MarkTimedOut(reason, message string, now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusTimedOut, now); err != nil {
+	if err := t.transition(StatusTimedOut); err != nil {
 		return err
 	}
 	t.endTime = now
@@ -292,7 +292,7 @@ func (t *Ticket) MarkTimedOut(reason, message string, now time.Time) error {
 func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusCancelled, now); err != nil {
+	if err := t.transition(StatusCancelled); err != nil {
 		return err
 	}
 	t.endTime = now
@@ -317,7 +317,7 @@ func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 func (t *Ticket) ReturnToSearching(reason string, now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusSearching, now); err != nil {
+	if err := t.transition(StatusSearching); err != nil {
 		return err
 	}
 	t.matchID = ""
@@ -346,7 +346,7 @@ func (t *Ticket) RequestCancel() {
 func (t *Ticket) MarkCancelledByAPI(now time.Time) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if err := t.transition(StatusCancelled, now); err != nil {
+	if err := t.transition(StatusCancelled); err != nil {
 		return err
 	}
 	t.endTime = now
@@ -370,12 +370,11 @@ func (t *Ticket) ObserveSearching() {
 }
 
 // transition updates the status after checking the state machine.
-func (t *Ticket) transition(next TicketStatus, now time.Time) error {
+func (t *Ticket) transition(next TicketStatus) error {
 	if !t.status.canTransitionTo(next) {
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, t.status, next)
 	}
 	t.status = next
-	_ = now // reserved for future observability fields
 	return nil
 }
 
