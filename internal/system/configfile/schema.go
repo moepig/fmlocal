@@ -18,7 +18,11 @@ type serverSection struct {
 	Region       string        `yaml:"region"`
 	AccountID    string        `yaml:"accountId"`
 	TickInterval time.Duration `yaml:"tickInterval"`
-	LogLevel     string        `yaml:"logLevel"`
+	// TicketRetention is how long terminal tickets stay queryable before the
+	// tick loop evicts them. Zero applies the application default (a few
+	// hours, mirroring AWS).
+	TicketRetention time.Duration `yaml:"ticketRetention"`
+	LogLevel        string        `yaml:"logLevel"`
 }
 
 type matchmakingConfigurationSection struct {

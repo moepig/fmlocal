@@ -302,6 +302,36 @@ func TestService_RequestTimeout(t *testing.T) {
 	assert.Contains(t, h.pub.Names(), "MatchmakingTimedOut")
 }
 
+func TestService_TerminalTicketsAreEvictedAfterRetention(t *testing.T) {
+	h := setup(t, skillRS, false)
+	h.svc.TicketRetention = time.Minute
+	ctx := context.Background()
+	_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1",
+		TicketID:          "solo",
+		Players:           []flexi.Player{{ID: "p1"}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, h.svc.StopMatchmaking(ctx, appmm.StopMatchmakingCommand{TicketID: "solo"}))
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	tk, err := h.svc.GetTicket("solo")
+	require.NoError(t, err)
+	require.Equal(t, mm.StatusCancelled, tk.Status())
+
+	// Still described while within the retention window.
+	h.clock.Advance(30 * time.Second)
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	_, err = h.svc.GetTicket("solo")
+	require.NoError(t, err)
+
+	// Gone once the retention window has elapsed.
+	h.clock.Advance(31 * time.Second)
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	_, err = h.svc.GetTicket("solo")
+	assert.ErrorIs(t, err, mm.ErrTicketNotFound)
+	assert.Empty(t, h.svc.TicketsByConfiguration("c1"))
+}
+
 func TestService_DescribeConfigurations(t *testing.T) {
 	h := setup(t, skillRS, false)
 	ctx := context.Background()

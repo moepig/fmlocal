@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/moepig/fmlocal/internal/app/ports"
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
@@ -20,6 +21,12 @@ type Service struct {
 	IDs        ports.IDGenerator
 	MatchIDs   ports.IDGenerator
 	Logger     *slog.Logger
+
+	// TicketRetention is how long a terminal (COMPLETED/CANCELLED/TIMED_OUT/
+	// FAILED) ticket stays queryable after it ended; Tick evicts older ones so
+	// a long-running server does not accumulate them forever. Zero means the
+	// default (AWS keeps finished tickets for a few hours).
+	TicketRetention time.Duration
 
 	stateMu sync.RWMutex
 	tickets map[mm.TicketID]*mm.Ticket
@@ -172,6 +179,33 @@ func (s *Service) ListRuleSets() []mm.RuleSet {
 	defer s.stateMu.RUnlock()
 	return slices.SortedFunc(maps.Values(s.ruleSets),
 		func(a, b mm.RuleSet) int { return cmp.Compare(a.Name, b.Name) })
+}
+
+// defaultTicketRetention mirrors AWS, which keeps finished matchmaking
+// tickets queryable for a few hours.
+const defaultTicketRetention = 3 * time.Hour
+
+func (s *Service) retention() time.Duration {
+	if s.TicketRetention > 0 {
+		return s.TicketRetention
+	}
+	return defaultTicketRetention
+}
+
+// evictExpiredTickets drops terminal tickets whose retention window has
+// passed, bounding memory on a long-running server. flexi offers no API to
+// evict its own terminal ticket state, so the engine's bookkeeping is left in
+// place until such an API exists.
+func (s *Service) evictExpiredTickets(name mm.ConfigurationName, now time.Time) {
+	retention := s.retention()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	for id, t := range s.ticketsByConfig[name] {
+		if t.Status().IsTerminal() && !t.EndTime().IsZero() && now.Sub(t.EndTime()) >= retention {
+			delete(s.ticketsByConfig[name], id)
+			delete(s.tickets, id)
+		}
+	}
 }
 
 // SaveTicket is the single write-path for the ticket map.

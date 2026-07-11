@@ -51,15 +51,16 @@ type ConfigurationBinding struct {
 
 // Loaded is the fully-parsed configuration, ready for the composition root.
 type Loaded struct {
-	Region       string
-	AccountID    string
-	AWSAPIPort   int
-	WebUIPort    int
-	TickInterval time.Duration
-	LogLevel     slog.Level
-	Configurations []ConfigurationBinding
-	RuleSets       []mm.RuleSet
-	Publishers     []Publisher
+	Region          string
+	AccountID       string
+	AWSAPIPort      int
+	WebUIPort       int
+	TickInterval    time.Duration
+	TicketRetention time.Duration
+	LogLevel        slog.Level
+	Configurations  []ConfigurationBinding
+	RuleSets        []mm.RuleSet
+	Publishers      []Publisher
 }
 
 // LoadFile parses path, resolves rule set bodies, and returns a Loaded with
@@ -126,15 +127,16 @@ func LoadFile(path string) (*Loaded, error) {
 		return nil, err
 	}
 	loaded := &Loaded{
-		Region:         doc.Server.Region,
-		AccountID:      doc.Server.AccountID,
-		AWSAPIPort:     doc.Server.AWSAPIPort,
-		WebUIPort:      doc.Server.WebUIPort,
-		TickInterval:   doc.Server.TickInterval,
-		LogLevel:       logLevel,
-		Configurations: bindings,
-		RuleSets:       ruleSets,
-		Publishers:     publishers,
+		Region:          doc.Server.Region,
+		AccountID:       doc.Server.AccountID,
+		AWSAPIPort:      doc.Server.AWSAPIPort,
+		WebUIPort:       doc.Server.WebUIPort,
+		TickInterval:    doc.Server.TickInterval,
+		TicketRetention: doc.Server.TicketRetention,
+		LogLevel:        logLevel,
+		Configurations:  bindings,
+		RuleSets:        ruleSets,
+		Publishers:      publishers,
 	}
 	if err := loaded.validate(); err != nil {
 		return nil, err

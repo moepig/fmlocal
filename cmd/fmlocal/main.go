@@ -83,11 +83,12 @@ func run(cfg *configfile.Loaded, logger *slog.Logger) error {
 
 	// Application service
 	svc := &appmm.Service{
-		Engines:  resolver,
-		Clock:    clk,
-		IDs:      ids,
-		MatchIDs: idgen.NewUUID(),
-		Logger:   logger,
+		Engines:         resolver,
+		Clock:           clk,
+		IDs:             ids,
+		MatchIDs:        idgen.NewUUID(),
+		Logger:          logger,
+		TicketRetention: cfg.TicketRetention,
 	}
 	svc.LoadConfigurations(mmConfigurations(cfg))
 	svc.LoadRuleSets(cfg.RuleSets)

@@ -114,7 +114,11 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 	if err := s.finalizeMatches(cfg, engine, matches, now, batch); err != nil {
 		return err
 	}
-	return s.syncActiveTickets(cfg, engine, now, batch)
+	if err := s.syncActiveTickets(cfg, engine, now, batch); err != nil {
+		return err
+	}
+	s.evictExpiredTickets(name, now)
+	return nil
 }
 
 func (s *Service) enforceRequestTimeouts(cfg mm.Configuration, engine *flexi.Matchmaker, now time.Time, batch *eventBatch) error {
