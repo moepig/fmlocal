@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,21 @@ func TestStartMatchmaking_TeamIsRejected(t *testing.T) {
 	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
 	  "ConfigurationName": "c1",
 	  "Players": [{"PlayerId": "p1", "Team": "red"}]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
+}
+
+func TestStartMatchmaking_MoreThanTenPlayersIsRejected(t *testing.T) {
+	h := setup(t)
+	players := make([]string, 11)
+	for i := range players {
+		players[i] = `{"PlayerId": "p` + string(rune('a'+i)) + `"}`
+	}
+	// AWS caps StartMatchmaking at 10 players per request.
+	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
+	  "ConfigurationName": "c1",
+	  "Players": [`+strings.Join(players, ",")+`]
 	}`)
 	assert.Equal(t, 400, code)
 	assert.Contains(t, string(body), "InvalidRequestException")

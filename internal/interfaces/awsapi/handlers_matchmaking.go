@@ -7,6 +7,10 @@ import (
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 )
 
+// maxStartMatchmakingPlayers is AWS's per-request player cap for
+// StartMatchmaking.
+const maxStartMatchmakingPlayers = 10
+
 func (s *Server) handleStartMatchmaking(r *http.Request, body []byte) (any, error) {
 	var in StartMatchmakingInput
 	if err := decodeJSON(body, &in); err != nil {
@@ -14,6 +18,11 @@ func (s *Server) handleStartMatchmaking(r *http.Request, body []byte) (any, erro
 	}
 	if len(in.Players) == 0 {
 		return nil, newInvalidRequest("Players is required")
+	}
+	// AWS caps StartMatchmaking at 10 players per request (the Players member
+	// has "Array Members: Minimum number of 1 item. Maximum number of 10").
+	if len(in.Players) > maxStartMatchmakingPlayers {
+		return nil, newInvalidRequest("Players must contain at most %d items, got %d", maxStartMatchmakingPlayers, len(in.Players))
 	}
 	// AWS rejects Team on regular matchmaking requests: "Do not specify a team
 	// if you are not using backfill" (Player.Team documentation).
