@@ -1,5 +1,7 @@
 package matchmaking
 
+import "slices"
+
 // TicketStatus is the finite set of states a matchmaking ticket can be in.
 // Values match the AWS GameLift MatchmakingTicket.Status wire strings so
 // translation to AWS DTOs is trivial, but the type itself is a domain value
@@ -28,38 +30,22 @@ func (s TicketStatus) IsTerminal() bool {
 
 func (s TicketStatus) IsActive() bool { return !s.IsTerminal() }
 
-// canTransition enumerates the allowed transitions; anything else is a domain
-// invariant violation. The map is intentionally conservative: it encodes what
-// the engine actually drives, not a superset of AWS-possible transitions.
+// allowedTransitions enumerates the allowed transitions; anything else is a
+// domain invariant violation. The table is intentionally conservative: it
+// encodes what the engine actually drives, not a superset of AWS-possible
+// transitions.
+//
+// REQUIRES_ACCEPTANCE -> SEARCHING: a proposal this ticket accepted failed to
+// gather every required acceptance, so the engine returns the ticket to the
+// pool and AWS re-emits MatchmakingSearching.
+var allowedTransitions = map[TicketStatus][]TicketStatus{
+	StatusQueued:             {StatusSearching, StatusRequiresAcceptance, StatusPlacing, StatusCancelled, StatusTimedOut},
+	StatusSearching:          {StatusRequiresAcceptance, StatusPlacing, StatusCancelled, StatusTimedOut},
+	StatusRequiresAcceptance: {StatusSearching, StatusPlacing, StatusCancelled, StatusTimedOut, StatusFailed},
+	StatusPlacing:            {StatusCompleted, StatusFailed},
+}
+
 func (s TicketStatus) canTransitionTo(next TicketStatus) bool {
 	// Same status is always a no-op.
-	if s == next {
-		return true
-	}
-	switch s {
-	case StatusQueued:
-		switch next {
-		case StatusSearching, StatusRequiresAcceptance, StatusPlacing, StatusCancelled, StatusTimedOut:
-			return true
-		}
-	case StatusSearching:
-		switch next {
-		case StatusRequiresAcceptance, StatusPlacing, StatusCancelled, StatusTimedOut:
-			return true
-		}
-	case StatusRequiresAcceptance:
-		switch next {
-		// SEARCHING: a proposal this ticket accepted failed to gather every
-		// required acceptance, so the engine returns the ticket to the pool and
-		// AWS re-emits MatchmakingSearching.
-		case StatusSearching, StatusPlacing, StatusCancelled, StatusTimedOut, StatusFailed:
-			return true
-		}
-	case StatusPlacing:
-		switch next {
-		case StatusCompleted, StatusFailed:
-			return true
-		}
-	}
-	return false
+	return s == next || slices.Contains(allowedTransitions[s], next)
 }
