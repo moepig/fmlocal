@@ -118,7 +118,7 @@ func LoadFile(path string) (*Loaded, error) {
 			FlexMatchMode:            mm.FlexMatchMode(cmp.Or(mc.FlexMatchMode, string(mm.FlexMatchModeStandalone))),
 			NotificationTargetIDs:    slices.Clone(mc.NotificationTargets),
 		}
-		bindings = append(bindings, ConfigurationBinding{Configuration: cfg, PublisherIDs: mc.NotificationTargets})
+		bindings = append(bindings, ConfigurationBinding{Configuration: cfg, PublisherIDs: slices.Clone(mc.NotificationTargets)})
 	}
 
 	logLevel, err := parseLogLevel(doc.Server.LogLevel)
