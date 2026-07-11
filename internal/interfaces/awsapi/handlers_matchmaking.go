@@ -104,7 +104,3 @@ func (s *Server) handleAcceptMatch(r *http.Request, body []byte) (any, error) {
 func (s *Server) handleStartMatchBackfill(_ *http.Request, _ []byte) (any, error) {
 	return nil, newUnsupported("StartMatchBackfill is not supported by fmlocal")
 }
-
-func (s *Server) handleStopMatchBackfill(_ *http.Request, _ []byte) (any, error) {
-	return nil, newUnsupported("StopMatchBackfill is not supported by fmlocal")
-}

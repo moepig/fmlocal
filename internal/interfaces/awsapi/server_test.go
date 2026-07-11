@@ -342,11 +342,14 @@ func TestStopMatchmaking_TicketNotFound(t *testing.T) {
 	assert.Contains(t, string(body), "NotFoundException")
 }
 
-func TestStopMatchbackfill_IsUnsupported(t *testing.T) {
+func TestStopMatchBackfill_IsUnknownOperation(t *testing.T) {
 	h := setup(t)
+	// StopMatchBackfill does not exist in the GameLift API (backfill tickets
+	// are stopped via StopMatchmaking), so real AWS answers with
+	// UnknownOperationException.
 	code, body := call(t, h.httpSrv, "StopMatchBackfill", `{}`)
 	assert.Equal(t, 400, code)
-	assert.Contains(t, string(body), "UnsupportedOperationException")
+	assert.Contains(t, string(body), "UnknownOperationException")
 }
 
 func toJSONString(s string) string {

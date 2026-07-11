@@ -18,7 +18,6 @@ var handlers = map[string]handler{
 	"DescribeMatchmaking":               (*Server).handleDescribeMatchmaking,
 	"AcceptMatch":                       (*Server).handleAcceptMatch,
 	"StartMatchBackfill":                (*Server).handleStartMatchBackfill,
-	"StopMatchBackfill":                 (*Server).handleStopMatchBackfill,
 	"DescribeMatchmakingConfigurations": (*Server).handleDescribeConfigurations,
 	"DescribeMatchmakingRuleSets":       (*Server).handleDescribeRuleSets,
 	"ValidateMatchmakingRuleSet":        (*Server).handleValidateRuleSet,
