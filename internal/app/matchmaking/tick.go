@@ -127,7 +127,8 @@ func (s *Service) enforceRequestTimeouts(cfg mm.Configuration, engine *flexi.Mat
 		if err != nil {
 			continue
 		}
-		if ticket.Status() != mm.StatusQueued && ticket.Status() != mm.StatusSearching {
+		status := ticket.Status()
+		if status != mm.StatusQueued && status != mm.StatusSearching {
 			continue
 		}
 		if now.Sub(ticket.StartTime()) < cfg.RequestTimeout {
