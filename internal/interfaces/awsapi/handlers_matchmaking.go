@@ -15,6 +15,13 @@ func (s *Server) handleStartMatchmaking(r *http.Request, body []byte) (any, erro
 	if len(in.Players) == 0 {
 		return nil, newInvalidRequest("Players is required")
 	}
+	// AWS rejects Team on regular matchmaking requests: "Do not specify a team
+	// if you are not using backfill" (Player.Team documentation).
+	for _, p := range in.Players {
+		if p.Team != "" {
+			return nil, newInvalidRequest("Player %q: Team must not be specified for StartMatchmaking", p.PlayerID)
+		}
+	}
 	ticket, err := s.service.StartMatchmaking(r.Context(), appmm.StartMatchmakingCommand{
 		ConfigurationName: mm.ConfigurationName(in.ConfigurationName),
 		TicketID:          mm.TicketID(in.TicketID),

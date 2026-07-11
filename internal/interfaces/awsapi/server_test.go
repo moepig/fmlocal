@@ -114,6 +114,18 @@ func TestStartMatchmaking_AttributeTypeMismatchIsInvalidRequest(t *testing.T) {
 	assert.Contains(t, string(body), "InvalidRequestException")
 }
 
+func TestStartMatchmaking_TeamIsRejected(t *testing.T) {
+	h := setup(t)
+	// AWS: "Do not specify a team if you are not using backfill"; a Team on a
+	// regular StartMatchmaking request is a client error, not silently ignored.
+	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
+	  "ConfigurationName": "c1",
+	  "Players": [{"PlayerId": "p1", "Team": "red"}]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
+}
+
 func TestStartMatchmaking_UnknownConfigurationIsNotFound(t *testing.T) {
 	h := setup(t)
 	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
