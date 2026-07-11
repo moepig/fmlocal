@@ -192,10 +192,6 @@ func (l *Loaded) validate() error {
 		}
 		rsNames[rs.Name] = true
 	}
-	knownEvents := map[string]bool{}
-	for _, n := range mm.KnownEventNames {
-		knownEvents[n] = true
-	}
 	pubs := map[string]Publisher{}
 	for _, p := range l.Publishers {
 		if p.ID == "" {
@@ -219,7 +215,7 @@ func (l *Loaded) validate() error {
 			return fmt.Errorf("configfile: publisher %q unknown kind %q", p.ID, p.Kind)
 		}
 		for _, n := range p.OnlyEvents {
-			if !knownEvents[n] {
+			if !slices.Contains(mm.KnownEventNames, n) {
 				return fmt.Errorf("configfile: publisher %q onlyEvents contains unknown event %q", p.ID, n)
 			}
 		}
