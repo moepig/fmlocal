@@ -1,6 +1,7 @@
 package configfile
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"os"
@@ -114,7 +115,7 @@ func LoadFile(path string) (*Loaded, error) {
 			AcceptanceRequired:       mc.AcceptanceRequired,
 			AcceptanceTimeout:        time.Duration(mc.AcceptanceTimeoutSeconds) * time.Second,
 			BackfillMode:             mm.BackfillMode(mc.BackfillMode),
-			FlexMatchMode:            mm.FlexMatchMode(defaultString(mc.FlexMatchMode, string(mm.FlexMatchModeStandalone))),
+			FlexMatchMode:            mm.FlexMatchMode(cmp.Or(mc.FlexMatchMode, string(mm.FlexMatchModeStandalone))),
 			NotificationTargetIDs:    slices.Clone(mc.NotificationTargets),
 		}
 		bindings = append(bindings, ConfigurationBinding{Configuration: cfg, PublisherIDs: mc.NotificationTargets})
@@ -254,11 +255,4 @@ func (l *Loaded) validate() error {
 		}
 	}
 	return nil
-}
-
-func defaultString(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }

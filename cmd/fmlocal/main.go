@@ -4,6 +4,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -196,10 +197,10 @@ func buildPublishers(ctx context.Context, cfg *configfile.Loaded, ids ports.IDGe
 			pub = notification.NewSNSHTTPPublisher(p.URL, translator, ids, snsClient)
 		case configfile.PublisherKindSQSEventBridge:
 			awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
-				awsconfig.WithRegion(defaultString(p.AWSRegion, "us-east-1")),
+				awsconfig.WithRegion(cmp.Or(p.AWSRegion, "us-east-1")),
 				awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-					defaultString(p.AccessKey, "x"),
-					defaultString(p.SecretKey, "x"),
+					cmp.Or(p.AccessKey, "x"),
+					cmp.Or(p.SecretKey, "x"),
 					"",
 				)),
 			)
@@ -245,11 +246,4 @@ func ticketLookup(svc *appmm.Service) notification.TicketLookup {
 			Players:   players,
 		}, true
 	}
-}
-
-func defaultString(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }
