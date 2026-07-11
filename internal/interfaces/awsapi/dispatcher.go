@@ -40,8 +40,8 @@ var (
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	target := r.Header.Get("X-Amz-Target")
-	action := strings.TrimPrefix(target, "GameLift.")
-	if action == "" || action == target {
+	action, ok := strings.CutPrefix(target, "GameLift.")
+	if !ok || action == "" {
 		newInvalidRequest("missing or malformed X-Amz-Target header").write(w)
 		return
 	}
