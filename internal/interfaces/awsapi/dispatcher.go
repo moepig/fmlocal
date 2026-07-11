@@ -1,6 +1,7 @@
 package awsapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -146,7 +147,7 @@ func decodeJSON(body []byte, dst any) error {
 	if len(body) == 0 {
 		return nil
 	}
-	dec := json.NewDecoder(strings.NewReader(string(body)))
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return newInvalidRequest("parse json body: %v", err)
