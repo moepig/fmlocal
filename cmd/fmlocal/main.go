@@ -67,8 +67,10 @@ func run(cfg *configfile.Loaded, logger *slog.Logger) error {
 	clk := sysclock.System{}
 	ids := idgen.NewUUID()
 
-	// Engines — one *flexi.Matchmaker per configuration, built directly.
+	// Engines — one *flexi.Matchmaker per configuration, built directly. The
+	// same pass collects the configuration names the Ticker will drive.
 	resolver := appmm.NewStaticEngineResolver()
+	names := make([]mm.ConfigurationName, 0, len(cfg.Configurations))
 	for _, b := range cfg.Configurations {
 		rs := findRuleSet(cfg.RuleSets, b.Configuration.RuleSetName)
 		engine, err := flexi.New(rs.Body, flexi.WithClock(clk))
@@ -76,6 +78,7 @@ func run(cfg *configfile.Loaded, logger *slog.Logger) error {
 			return fmt.Errorf("engine for %q: %w", b.Configuration.Name, err)
 		}
 		resolver.Register(b.Configuration.Name, engine)
+		names = append(names, b.Configuration.Name)
 	}
 
 	// Application service
@@ -119,10 +122,6 @@ func run(cfg *configfile.Loaded, logger *slog.Logger) error {
 	})
 
 	// Ticker
-	names := make([]mm.ConfigurationName, 0, len(cfg.Configurations))
-	for _, b := range cfg.Configurations {
-		names = append(names, b.Configuration.Name)
-	}
 	ticker := &appmm.Ticker{Service: svc, Names: names, Logger: logger}
 
 	var wg sync.WaitGroup
