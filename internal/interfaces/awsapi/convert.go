@@ -1,6 +1,7 @@
 package awsapi
 
 import (
+	"maps"
 	"slices"
 	"time"
 
@@ -68,11 +69,7 @@ func attributesToDTO(in flexi.Attributes) map[string]AttributeValue {
 		case flexi.AttrStringList:
 			out[k] = AttributeValue{SL: slices.Clone(v.SL)}
 		case flexi.AttrStringNumberMap:
-			cp := make(map[string]float64, len(v.SDM))
-			for kk, vv := range v.SDM {
-				cp[kk] = vv
-			}
-			out[k] = AttributeValue{SDM: cp}
+			out[k] = AttributeValue{SDM: maps.Clone(v.SDM)}
 		}
 	}
 	return out
