@@ -380,12 +380,7 @@ func (t *Ticket) transition(next TicketStatus, now time.Time) error {
 }
 
 func (t *Ticket) hasPlayer(id PlayerID) bool {
-	for _, p := range t.players {
-		if p.ID == string(id) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(t.players, func(p Player) bool { return p.ID == string(id) })
 }
 
 func (t *Ticket) recordEvent(e Event) { t.events = append(t.events, e) }
