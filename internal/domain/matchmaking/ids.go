@@ -41,3 +41,13 @@ func (n ConfigurationName) String() string { return string(n) }
 type RuleSetName string
 
 func (n RuleSetName) String() string { return string(n) }
+
+// ToTyped converts a slice of wire strings into one of the domain's typed
+// string slices (TicketID, PlayerID, ConfigurationName, ...).
+func ToTyped[T ~string](in []string) []T {
+	out := make([]T, len(in))
+	for i, s := range in {
+		out[i] = T(s)
+	}
+	return out
+}

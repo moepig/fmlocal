@@ -50,11 +50,7 @@ func (s *Server) handleDescribeMatchmaking(r *http.Request, body []byte) (any, e
 	if len(in.TicketIDs) == 0 {
 		return nil, newInvalidRequest("TicketIds is required")
 	}
-	ids := make([]mm.TicketID, len(in.TicketIDs))
-	for i, id := range in.TicketIDs {
-		ids[i] = mm.TicketID(id)
-	}
-	tickets, err := s.service.DescribeMatchmaking(r.Context(), appmm.DescribeMatchmakingQuery{TicketIDs: ids})
+	tickets, err := s.service.DescribeMatchmaking(r.Context(), appmm.DescribeMatchmakingQuery{TicketIDs: mm.ToTyped[mm.TicketID](in.TicketIDs)})
 	if err != nil {
 		return nil, err
 	}
@@ -79,13 +75,9 @@ func (s *Server) handleAcceptMatch(r *http.Request, body []byte) (any, error) {
 	if len(in.PlayerIDs) == 0 {
 		return nil, newInvalidRequest("PlayerIds is required")
 	}
-	players := make([]mm.PlayerID, len(in.PlayerIDs))
-	for i, id := range in.PlayerIDs {
-		players[i] = mm.PlayerID(id)
-	}
 	if err := s.service.AcceptMatch(r.Context(), appmm.AcceptMatchCommand{
 		TicketID:  mm.TicketID(in.TicketID),
-		PlayerIDs: players,
+		PlayerIDs: mm.ToTyped[mm.PlayerID](in.PlayerIDs),
 		Accepted:  in.AcceptanceType == "ACCEPT",
 	}); err != nil {
 		return nil, err

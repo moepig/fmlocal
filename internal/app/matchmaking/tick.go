@@ -148,14 +148,6 @@ func (s *Service) enforceRequestTimeouts(cfg mm.Configuration, engine *flexi.Mat
 	return nil
 }
 
-func toTicketIDs(ss []string) []mm.TicketID {
-	out := make([]mm.TicketID, len(ss))
-	for i, s := range ss {
-		out[i] = mm.TicketID(s)
-	}
-	return out
-}
-
 // playerTeams inverts the engine's team->players map into player->team so it
 // can be recorded on individual tickets.
 func playerTeams(teams map[string][]flexi.Player) map[string]string {
@@ -194,10 +186,10 @@ func (s *Service) applyNewProposals(cfg mm.Configuration, before, after []flexi.
 	tracker := s.tracker(name)
 	seen := map[string]bool{}
 	for _, p := range before {
-		seen[proposalKey(toTicketIDs(p.TicketIDs))] = true
+		seen[proposalKey(mm.ToTyped[mm.TicketID](p.TicketIDs))] = true
 	}
 	for _, p := range after {
-		tids := toTicketIDs(p.TicketIDs)
+		tids := mm.ToTyped[mm.TicketID](p.TicketIDs)
 		key := proposalKey(tids)
 		if seen[key] {
 			continue
@@ -231,7 +223,7 @@ func (s *Service) applyNewProposals(cfg mm.Configuration, before, after []flexi.
 func (s *Service) finalizeMatches(cfg mm.Configuration, engine *flexi.Matchmaker, matches []flexi.Match, now time.Time, batch *eventBatch) error {
 	tracker := s.tracker(cfg.Name)
 	for _, m := range matches {
-		tids := toTicketIDs(m.TicketIDs)
+		tids := mm.ToTyped[mm.TicketID](m.TicketIDs)
 		// A match formed via acceptance already has a matchID from
 		// applyNewProposals; a direct (no-acceptance) match gets one here so
 		// the success event carries a stable id.

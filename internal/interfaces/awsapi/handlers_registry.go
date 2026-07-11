@@ -12,12 +12,8 @@ func (s *Server) handleDescribeConfigurations(r *http.Request, body []byte) (any
 	if err := decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
-	names := make([]mm.ConfigurationName, len(in.Names))
-	for i, n := range in.Names {
-		names[i] = mm.ConfigurationName(n)
-	}
 	cfgs, err := s.service.DescribeConfigurations(r.Context(), appmm.DescribeConfigurationsQuery{
-		Names:       names,
+		Names:       mm.ToTyped[mm.ConfigurationName](in.Names),
 		RuleSetName: mm.RuleSetName(in.RuleSetName),
 	})
 	if err != nil {
@@ -35,11 +31,7 @@ func (s *Server) handleDescribeRuleSets(r *http.Request, body []byte) (any, erro
 	if err := decodeJSON(body, &in); err != nil {
 		return nil, err
 	}
-	names := make([]mm.RuleSetName, len(in.Names))
-	for i, n := range in.Names {
-		names[i] = mm.RuleSetName(n)
-	}
-	rs, err := s.service.DescribeRuleSets(r.Context(), appmm.DescribeRuleSetsQuery{Names: names})
+	rs, err := s.service.DescribeRuleSets(r.Context(), appmm.DescribeRuleSetsQuery{Names: mm.ToTyped[mm.RuleSetName](in.Names)})
 	if err != nil {
 		return nil, err
 	}
