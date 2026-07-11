@@ -74,9 +74,8 @@ func NewTicket(id TicketID, cfg Configuration, players []Player, now time.Time) 
 		startTime:         now,
 	}
 	t.recordEvent(EventTicketSearchingStarted{
-		ticketID:   id,
-		configName: cfg.Name,
-		occurredAt: now,
+		baseEvent: baseEvent{configName: cfg.Name, occurredAt: now},
+		ticketID:  id,
 	})
 	return t, nil
 }
@@ -271,7 +270,8 @@ func (t *Ticket) MarkFailed(reason, message string, now time.Time) error {
 	t.statusReason = reason
 	t.statusMessage = message
 	t.recordEvent(EventMatchmakingFailed{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: reason, message: message, ruleMetrics: t.ruleMetrics, occurredAt: now,
+		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
+		ticketID:  t.id, matchID: t.matchID, reason: reason, message: message, ruleMetrics: t.ruleMetrics,
 	})
 	return nil
 }
@@ -288,7 +288,8 @@ func (t *Ticket) MarkTimedOut(reason, message string, now time.Time) error {
 	t.statusReason = reason
 	t.statusMessage = message
 	t.recordEvent(EventMatchmakingTimedOut{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, reason: reason, message: message, ruleMetrics: t.ruleMetrics, occurredAt: now,
+		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
+		ticketID:  t.id, matchID: t.matchID, reason: reason, message: message, ruleMetrics: t.ruleMetrics,
 	})
 	return nil
 }
@@ -309,7 +310,8 @@ func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 	t.statusReason = "Cancelled"
 	t.statusMessage = "A player failed to accept the proposed match"
 	t.recordEvent(EventMatchmakingCancelled{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, ruleMetrics: t.ruleMetrics, occurredAt: now,
+		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
+		ticketID:  t.id, matchID: t.matchID, ruleMetrics: t.ruleMetrics,
 	})
 	return nil
 }
@@ -334,9 +336,8 @@ func (t *Ticket) ReturnToSearching(reason string, now time.Time) error {
 	t.statusReason = reason
 	t.statusMessage = ""
 	t.recordEvent(EventTicketSearchingStarted{
-		ticketID:   t.id,
-		configName: t.configurationName,
-		occurredAt: now,
+		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
+		ticketID:  t.id,
 	})
 	return nil
 }
@@ -363,7 +364,8 @@ func (t *Ticket) MarkCancelledByAPI(now time.Time) error {
 	t.statusReason = "Cancelled"
 	t.statusMessage = "Matchmaking stopped by client"
 	t.recordEvent(EventMatchmakingCancelled{
-		ticketID: t.id, configName: t.configurationName, matchID: t.matchID, ruleMetrics: t.ruleMetrics, occurredAt: now,
+		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
+		ticketID:  t.id, matchID: t.matchID, ruleMetrics: t.ruleMetrics,
 	})
 	return nil
 }
