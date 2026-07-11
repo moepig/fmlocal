@@ -21,10 +21,14 @@ type Service struct {
 	MatchIDs   ports.IDGenerator
 	Logger     *slog.Logger
 
-	stateMu        sync.RWMutex
-	tickets        map[mm.TicketID]*mm.Ticket
-	configurations map[mm.ConfigurationName]mm.Configuration
-	ruleSets       map[mm.RuleSetName]mm.RuleSet
+	stateMu sync.RWMutex
+	tickets map[mm.TicketID]*mm.Ticket
+	// ticketsByConfig indexes tickets per configuration so the per-tick scans
+	// (timeout enforcement, status sync) touch only that configuration's
+	// tickets instead of the whole map. Maintained by SaveTicket.
+	ticketsByConfig map[mm.ConfigurationName]map[mm.TicketID]*mm.Ticket
+	configurations  map[mm.ConfigurationName]mm.Configuration
+	ruleSets        map[mm.RuleSetName]mm.RuleSet
 
 	trackersMu sync.Mutex
 	trackers   map[mm.ConfigurationName]*proposalTracker
@@ -108,11 +112,9 @@ func (s *Service) GetTickets(ids []mm.TicketID) []*mm.Ticket {
 func (s *Service) TicketsByConfiguration(name mm.ConfigurationName) []*mm.Ticket {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
-	out := make([]*mm.Ticket, 0)
-	for _, t := range s.tickets {
-		if t.ConfigurationName() == name {
-			out = append(out, t)
-		}
+	out := make([]*mm.Ticket, 0, len(s.ticketsByConfig[name]))
+	for _, t := range s.ticketsByConfig[name] {
+		out = append(out, t)
 	}
 	slices.SortFunc(out, func(a, b *mm.Ticket) int { return cmp.Compare(a.ID(), b.ID()) })
 	return out
@@ -124,10 +126,7 @@ func (s *Service) ActiveTicketIDsByConfiguration(name mm.ConfigurationName) []mm
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
 	out := make([]mm.TicketID, 0)
-	for _, t := range s.tickets {
-		if t.ConfigurationName() != name {
-			continue
-		}
+	for _, t := range s.ticketsByConfig[name] {
 		if t.Status().IsActive() {
 			out = append(out, t.ID())
 		}
@@ -185,7 +184,16 @@ func (s *Service) SaveTicket(t *mm.Ticket) error {
 	if s.tickets == nil {
 		s.tickets = map[mm.TicketID]*mm.Ticket{}
 	}
+	if s.ticketsByConfig == nil {
+		s.ticketsByConfig = map[mm.ConfigurationName]map[mm.TicketID]*mm.Ticket{}
+	}
 	s.tickets[t.ID()] = t
+	byConfig, ok := s.ticketsByConfig[t.ConfigurationName()]
+	if !ok {
+		byConfig = map[mm.TicketID]*mm.Ticket{}
+		s.ticketsByConfig[t.ConfigurationName()] = byConfig
+	}
+	byConfig[t.ID()] = t
 	return nil
 }
 
