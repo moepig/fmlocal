@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrTicketNotFound        = errors.New("matchmaking: ticket not found")
+	ErrInvalidRequest        = errors.New("matchmaking: invalid request")
 	ErrTicketAlreadyExists   = errors.New("matchmaking: ticket already exists")
 	ErrConfigurationNotFound = errors.New("matchmaking: configuration not found")
 	ErrRuleSetNotFound       = errors.New("matchmaking: rule set not found")

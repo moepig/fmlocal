@@ -102,6 +102,18 @@ func TestStartMatchmaking_AllocatesTicketID(t *testing.T) {
 	assert.Equal(t, "QUEUED", out.MatchmakingTicket.Status)
 }
 
+func TestStartMatchmaking_AttributeTypeMismatchIsInvalidRequest(t *testing.T) {
+	h := setup(t)
+	// "skill" is declared as number in the rule set; a string value must be a
+	// client error (400 InvalidRequestException, matching AWS), not a 500.
+	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
+	  "ConfigurationName": "c1",
+	  "Players": [{"PlayerId": "p1", "PlayerAttributes": {"skill": {"S": "high"}}}]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
+}
+
 func TestStartMatchmaking_UnknownConfigurationIsNotFound(t *testing.T) {
 	h := setup(t)
 	code, body := call(t, h.httpSrv, "StartMatchmaking", `{

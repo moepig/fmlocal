@@ -40,7 +40,11 @@ func (s *Service) StartMatchmaking(ctx context.Context, cmd StartMatchmakingComm
 		if errors.Is(err, flexi.ErrDuplicateTicket) {
 			return nil, mm.ErrTicketAlreadyExists
 		}
-		return nil, fmt.Errorf("engine enqueue: %w", err)
+		// Every other Enqueue error in flexi v0.2.0 is input validation (empty
+		// id, no players, attribute kind mismatch), so it maps to the client
+		// (AWS: 400 InvalidRequestException). Switch to errors.Is once flexi
+		// exposes a dedicated sentinel for invalid tickets.
+		return nil, fmt.Errorf("%w: engine enqueue: %v", mm.ErrInvalidRequest, err)
 	}
 	if err := s.SaveTicket(ticket); err != nil {
 		return nil, err

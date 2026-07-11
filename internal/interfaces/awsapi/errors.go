@@ -63,7 +63,8 @@ func translateDomainError(err error) *APIError {
 		errors.Is(err, mm.ErrPlayerNotInTicket),
 		errors.Is(err, mm.ErrProposalNotFound),
 		errors.Is(err, mm.ErrInvalidTransition),
-		errors.Is(err, mm.ErrInvalidRuleSet):
+		errors.Is(err, mm.ErrInvalidRuleSet),
+		errors.Is(err, mm.ErrInvalidRequest):
 		return newInvalidRequest("%v", err)
 	case errors.Is(err, mm.ErrBackfillUnsupported):
 		return newUnsupported("%v", err)
