@@ -2,6 +2,7 @@ package awsapi
 
 import (
 	"net/http"
+	"regexp"
 
 	appmm "github.com/moepig/fmlocal/internal/app/matchmaking"
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
@@ -11,10 +12,20 @@ import (
 // StartMatchmaking.
 const maxStartMatchmakingPlayers = 10
 
+// AWS constrains StartMatchmaking's TicketId to this pattern and 128 chars.
+// Enforcing it also keeps "|" out of ticket ids, which the proposal tracker
+// relies on as its roster-key separator.
+var ticketIDPattern = regexp.MustCompile(`^[a-zA-Z0-9-.]*$`)
+
+const maxTicketIDLength = 128
+
 func (s *Server) handleStartMatchmaking(r *http.Request, body []byte) (any, error) {
 	var in StartMatchmakingInput
 	if err := s.decodeJSON(body, &in); err != nil {
 		return nil, err
+	}
+	if len(in.TicketID) > maxTicketIDLength || !ticketIDPattern.MatchString(in.TicketID) {
+		return nil, newInvalidRequest("TicketId must match [a-zA-Z0-9-.]* and be at most %d characters", maxTicketIDLength)
 	}
 	if len(in.Players) == 0 {
 		return nil, newInvalidRequest("Players is required")

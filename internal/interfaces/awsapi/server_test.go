@@ -154,6 +154,26 @@ func TestStartMatchmaking_UnknownFieldsAreIgnored(t *testing.T) {
 	assert.Equal(t, 200, code, "body: %s", body)
 }
 
+func TestStartMatchmaking_InvalidTicketIDIsRejected(t *testing.T) {
+	h := setup(t)
+	// AWS constrains TicketId to [a-zA-Z0-9-\.]* (max 128 chars). Rejecting
+	// anything else also rules out ids containing "|", which the proposal
+	// tracker uses as its roster-key separator.
+	for name, id := range map[string]string{
+		"pipe":     "bad|id",
+		"space":    "bad id",
+		"unicode":  "チケット",
+		"too-long": strings.Repeat("a", 129),
+	} {
+		code, body := call(t, h.httpSrv, "StartMatchmaking", `{
+		  "ConfigurationName": "c1", "TicketId": `+toJSONString(id)+`,
+		  "Players": [{"PlayerId": "p1"}]
+		}`)
+		assert.Equal(t, 400, code, "case %s", name)
+		assert.Contains(t, string(body), "InvalidRequestException", "case %s", name)
+	}
+}
+
 func TestStartMatchmaking_UnknownConfigurationIsNotFound(t *testing.T) {
 	h := setup(t)
 	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
