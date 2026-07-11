@@ -164,8 +164,7 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		for i := range td {
 			for j := range td[i].Players {
 				if v, ok := acceptances[mm.PlayerID(td[i].Players[j].PlayerID)]; ok {
-					accepted := v
-					td[i].Players[j].Accepted = &accepted
+					td[i].Players[j].Accepted = &v
 				}
 			}
 		}

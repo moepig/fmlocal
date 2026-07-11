@@ -61,11 +61,9 @@ func attributesToDTO(in flexi.Attributes) map[string]AttributeValue {
 	for k, v := range in {
 		switch v.Kind {
 		case flexi.AttrString:
-			s := v.S
-			out[k] = AttributeValue{S: &s}
+			out[k] = AttributeValue{S: &v.S}
 		case flexi.AttrNumber:
-			n := v.N
-			out[k] = AttributeValue{N: &n}
+			out[k] = AttributeValue{N: &v.N}
 		case flexi.AttrStringList:
 			out[k] = AttributeValue{SL: slices.Clone(v.SL)}
 		case flexi.AttrStringNumberMap:
