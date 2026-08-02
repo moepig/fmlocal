@@ -3,6 +3,7 @@ package matchmaking
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/moepig/flexi"
 	"github.com/moepig/fmlocal/internal/app/ports"
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 )
@@ -193,18 +195,25 @@ func (s *Service) retention() time.Duration {
 }
 
 // evictExpiredTickets drops terminal tickets whose retention window has
-// passed, bounding memory on a long-running server. flexi offers no API to
-// evict its own terminal ticket state, so the engine's bookkeeping is left in
-// place until such an API exists.
-func (s *Service) evictExpiredTickets(name mm.ConfigurationName, now time.Time) {
+// passed, bounding memory on a long-running server. The engine retains the
+// status and rule metrics of a spent ticket until it is evicted explicitly, so
+// its bookkeeping is released alongside the fmlocal-side entry. A ticket the
+// engine no longer tracks, or refuses to release, is still dropped here: the
+// retention window has expired either way.
+func (s *Service) evictExpiredTickets(name mm.ConfigurationName, engine *flexi.Matchmaker, now time.Time) {
 	retention := s.retention()
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	for id, t := range s.ticketsByConfig[name] {
-		if t.Status().IsTerminal() && !t.EndTime().IsZero() && now.Sub(t.EndTime()) >= retention {
-			delete(s.ticketsByConfig[name], id)
-			delete(s.tickets, id)
+		if !t.Status().IsTerminal() || t.EndTime().IsZero() || now.Sub(t.EndTime()) < retention {
+			continue
 		}
+		if err := engine.Evict(string(id)); err != nil && !errors.Is(err, flexi.ErrUnknownTicket) {
+			s.logger().Warn("engine evict failed",
+				"configuration", name, "ticket", id, "error", err.Error())
+		}
+		delete(s.ticketsByConfig[name], id)
+		delete(s.tickets, id)
 	}
 }
 

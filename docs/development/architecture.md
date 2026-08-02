@@ -52,7 +52,7 @@ Thin use cases that orchestrate the domain, the matchmaking engine, and the publ
 
 `Service` holds ticket, configuration, and rule-set state in maps guarded by a `sync.RWMutex`, and exposes `Load*` methods (populated at startup from the config file) and `Get` / `List` / `SaveTicket` accessors. There is no repository abstraction — fmlocal only ever runs in one process with no persistence, so an interface on top of a map was pure indirection.
 
-`Service.Tick` is the engine driver: on every ticker fire it asks flexi for newly-formed proposals and finished matches, then advances the affected tickets through the domain transitions and publishes the resulting events.
+`Service.Tick` is the engine driver: on every ticker fire it asks flexi for newly-formed proposals and finished matches, then advances the affected tickets through the domain transitions and publishes the resulting events. It closes by evicting tickets whose retention window has expired, from both the service maps and the engine.
 
 Ports (`internal/app/ports`) are the side-effecting interfaces the application still depends on: `EventPublisher`, `Clock`, `IDGenerator`. The default implementations live under `internal/app/defaults/` (`idgen`, `sysclock`); production publishers live under `infrastructure/notification`.
 
@@ -109,13 +109,13 @@ Application-layer errors fall into three buckets:
 
 - **Domain errors** (`mm.ErrInvalidTransition`, `mm.ErrTicketNotFound`, `mm.ErrPlayerNotInTicket`, `mm.ErrTicketAlreadyExists`). The awsapi adapter maps these to GameLift error codes.
 - **Application errors** (`appmm.ErrInvalidCommand`, unknown configuration). Also mapped to GameLift error codes.
-- **Infrastructure errors** (engine failures, unknown publisher). Logged and surfaced as `InternalServiceException`.
+- **Infrastructure errors** (engine failures, unknown publisher). Logged and surfaced as `InternalServiceException`. A ticket the engine rejects for its own contents (`flexi.ErrInvalidTicket`) is the caller's mistake, not an engine failure, and becomes `InvalidRequestException`.
 
 Publishers never fail the caller: `Service.dispatchEvents` logs and continues, because publishing is best-effort and partial failure should not roll back an already-applied state transition.
 
 ## What fmlocal deliberately does not do
 
-- **Game session placement.** `flexMatchMode: WITH_QUEUE` and `StartMatchBackfill` / `StopMatchBackfill` are unsupported; only `STANDALONE` matchmaking is implemented.
+- **Game session placement.** `flexMatchMode: WITH_QUEUE` and `StartMatchBackfill` are unsupported; only `STANDALONE` matchmaking is implemented.
 - **Persistence.** Everything is in-memory. Restart clears tickets.
 - **Authentication.** Credentials are ignored. fmlocal is a development tool; do not expose it publicly.
 

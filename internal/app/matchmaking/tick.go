@@ -117,7 +117,7 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 	if err := s.syncActiveTickets(cfg, engine, now, batch); err != nil {
 		return err
 	}
-	s.evictExpiredTickets(name, now)
+	s.evictExpiredTickets(name, engine, now)
 	return nil
 }
 

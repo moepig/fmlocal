@@ -324,12 +324,18 @@ func TestService_TerminalTicketsAreEvictedAfterRetention(t *testing.T) {
 	_, err = h.svc.GetTicket("solo")
 	require.NoError(t, err)
 
-	// Gone once the retention window has elapsed.
+	// Gone once the retention window has elapsed, on both sides: the engine
+	// retains a spent ticket's status and rule metrics until evicted, so an
+	// expired ticket that only fmlocal forgot would still leak there.
 	h.clock.Advance(31 * time.Second)
 	require.NoError(t, h.svc.Tick(ctx, "c1"))
 	_, err = h.svc.GetTicket("solo")
 	assert.ErrorIs(t, err, mm.ErrTicketNotFound)
 	assert.Empty(t, h.svc.TicketsByConfiguration("c1"))
+	engine, err := h.svc.Engines.EngineFor("c1")
+	require.NoError(t, err)
+	_, err = engine.Status("solo")
+	assert.ErrorIs(t, err, flexi.ErrUnknownTicket)
 }
 
 func TestService_DescribeConfigurations(t *testing.T) {
