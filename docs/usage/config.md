@@ -74,7 +74,7 @@ List of matchmaking configurations fmlocal serves. Each entry maps to a GameLift
 | `requestTimeoutSeconds` | int | `0` | Maximum number of seconds fmlocal waits to form a match before timing the ticket out. `0` means no timeout. |
 | `acceptanceRequired` | bool | `false` | When `true`, matched players must call `AcceptMatch` before the match is finalized. |
 | `acceptanceTimeoutSeconds` | int | `0` | Seconds players have to accept or reject a proposal. Only relevant when `acceptanceRequired` is `true`. |
-| `backfillMode` | string | `MANUAL` | Backfill mode. Accepted values: `MANUAL`, `AUTOMATIC`. fmlocal does not implement backfill; the field is stored and returned as-is in API responses. |
+| `backfillMode` | string | unset | Backfill mode, returned as-is in API responses. Only `MANUAL` is accepted; `AUTOMATIC` is rejected at startup because AWS does not offer it in `STANDALONE` mode. The value does not gate `StartMatchBackfill`, which is always callable — see [Match backfill](../feature/backfill.md). |
 | `flexMatchMode` | string | `STANDALONE` | Only `STANDALONE` is supported. fmlocal rejects any other value at startup. |
 | `notificationTargets` | []string | `[]` | Ordered list of publisher IDs (declared in `publishers`) that receive lifecycle events for this configuration. Multiple IDs fan out. |
 

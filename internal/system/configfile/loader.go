@@ -242,6 +242,15 @@ func (l *Loaded) validate() error {
 		if cfg.FlexMatchMode != mm.FlexMatchModeStandalone {
 			return fmt.Errorf("configfile: matchmaking %q only STANDALONE flexMatchMode is supported, got %q", cfg.Name, cfg.FlexMatchMode)
 		}
+		switch cfg.BackfillMode {
+		case "", mm.BackfillManual:
+		case mm.BackfillAutomatic:
+			// AWS itself offers automatic backfill only when FlexMatch places
+			// the game session, which STANDALONE does not.
+			return fmt.Errorf("configfile: matchmaking %q backfillMode AUTOMATIC is not available in STANDALONE mode", cfg.Name)
+		default:
+			return fmt.Errorf("configfile: matchmaking %q unknown backfillMode %q (want MANUAL)", cfg.Name, cfg.BackfillMode)
+		}
 		for _, id := range b.PublisherIDs {
 			p, ok := pubs[id]
 			if !ok {

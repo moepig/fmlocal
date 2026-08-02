@@ -234,6 +234,44 @@ ruleSets:
 	assert.Contains(t, err.Error(), "STANDALONE")
 }
 
+func TestLoadFile_BackfillModeValidated(t *testing.T) {
+	cases := []struct {
+		name    string
+		mode    string
+		wantErr string
+	}{
+		{"unset", "", ""},
+		{"manual", "MANUAL", ""},
+		// AWS offers automatic backfill only when FlexMatch places the game
+		// session, so STANDALONE cannot honour it.
+		{"automatic", "AUTOMATIC", "AUTOMATIC"},
+		{"unknown", "SOMETIMES", "unknown backfillMode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeFixture(t, `
+server:
+  awsApiPort: 9080
+  webUIPort: 9081
+matchmakingConfigurations:
+  - name: default
+    ruleSetName: 1v1
+    backfillMode: `+tc.mode+`
+ruleSets:
+  - name: 1v1
+    path: ruleset.json
+`)
+			_, err := configfile.LoadFile(path)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestLoadFile_InvalidConfigurationNameRejected(t *testing.T) {
 	path := writeFixture(t, `
 server:
