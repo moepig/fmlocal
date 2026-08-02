@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +28,7 @@ func proposalKey(ids []mm.TicketID) string {
 	for i, id := range ids {
 		cp[i] = string(id)
 	}
-	sort.Strings(cp)
+	slices.Sort(cp)
 	return strings.Join(cp, "|")
 }
 
