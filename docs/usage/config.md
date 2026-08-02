@@ -60,6 +60,7 @@ Global server settings.
 | `region` | string | `us-east-1` | AWS region embedded in generated ARNs and event envelopes. |
 | `accountId` | string | `000000000000` | AWS account ID embedded in generated ARNs and event envelopes. |
 | `tickInterval` | duration | `1s` | How often the matchmaker advances. Accepts Go duration strings (`500ms`, `1s`, …). Lower values reduce match latency at the cost of more CPU. |
+| `ticketRetention` | duration | `3h` | How long a finished ticket (`COMPLETED`, `CANCELLED`, `TIMED_OUT`, `FAILED`) stays queryable through `DescribeMatchmaking` before it is dropped from memory. Accepts Go duration strings. |
 | `logLevel` | string | `info` | Log verbosity. One of `debug`, `info`, `warn`, `error`. See [Logging](logging.md). |
 
 ## `matchmakingConfigurations`
@@ -79,7 +80,7 @@ List of matchmaking configurations fmlocal serves. Each entry maps to a GameLift
 
 ## `ruleSets`
 
-FlexMatch rule sets loaded from disk at startup. The file content is fed verbatim to the flexi matchmaking engine.
+FlexMatch rule sets loaded from disk at startup. A rule set file only describes matching rules: `requestTimeoutSeconds`, `acceptanceRequired`, and `acceptanceTimeoutSeconds` are taken from the matchmaking configuration that references the rule set, and any value the file declares for them is ignored. API responses return the file content verbatim.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
