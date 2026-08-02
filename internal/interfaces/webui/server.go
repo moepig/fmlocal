@@ -128,10 +128,15 @@ func (s *Server) handlePools(w http.ResponseWriter, _ *http.Request) {
 }
 
 type poolTicketRow struct {
-	TicketID  string
-	Status    string
-	StartTime string
-	MatchID   string
+	TicketID string
+	Status   string
+	// Backfill and GameSession describe a StartMatchBackfill ticket: the seats
+	// it is refilling and, when the request named one, the session those seats
+	// belong to. Both are empty for a regular ticket.
+	Backfill    string
+	GameSession string
+	StartTime   string
+	MatchID     string
 }
 
 func (s *Server) handlePool(w http.ResponseWriter, r *http.Request) {
@@ -139,11 +144,17 @@ func (s *Server) handlePool(w http.ResponseWriter, r *http.Request) {
 	tickets := s.Service.TicketsByConfiguration(name)
 	rows := make([]poolTicketRow, 0, len(tickets))
 	for _, t := range tickets {
+		backfill := ""
+		if t.IsBackfill() {
+			backfill = "yes"
+		}
 		rows = append(rows, poolTicketRow{
-			TicketID:  string(t.ID()),
-			Status:    string(t.Status()),
-			StartTime: t.StartTime().Format(time.RFC3339),
-			MatchID:   string(t.MatchID()),
+			TicketID:    string(t.ID()),
+			Status:      string(t.Status()),
+			Backfill:    backfill,
+			GameSession: t.GameSessionARN(),
+			StartTime:   t.StartTime().Format(time.RFC3339),
+			MatchID:     string(t.MatchID()),
 		})
 	}
 	_ = poolTmpl.Execute(w, map[string]any{"Name": string(name), "Tickets": rows})

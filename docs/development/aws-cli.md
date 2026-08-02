@@ -137,7 +137,40 @@ aws gamelift accept-match \
 
 After both accepts, the tickets advance to `PLACING` and then `COMPLETED`. If any player sends `--acceptance-type REJECT` (or the acceptance window elapses), the proposal fails acceptance: the ticket that rejected or never responded moves to `CANCELLED` and emits `MatchmakingCancelled`, while every ticket whose players had all accepted returns to `SEARCHING` (re-emitting `MatchmakingSearching`) to be re-matched. A single match-level `AcceptMatchCompleted` reports the outcome (`Rejected` or `TimedOut`). This mirrors AWS — `TIMED_OUT` and `MatchmakingFailed` are not used for acceptance failures.
 
+## Backfill a session
+
+The `backfill` configuration uses the `2v2-backfill` rule set (two teams of two, `backfillPriority: high`). Report the players still in the session, each with the team they occupy:
+
+```sh
+aws gamelift start-match-backfill \
+  --endpoint-url http://localhost:9080 \
+  --region us-east-1 \
+  --configuration-name backfill \
+  --ticket-id ticket-backfill \
+  --game-session-arn arn:aws:gamelift:us-east-1:000000000000:gamesession/gs-1 \
+  --players '[
+    { "PlayerId": "alice", "Team": "red" },
+    { "PlayerId": "bob", "Team": "red" },
+    { "PlayerId": "carol", "Team": "blue" }
+  ]'
+```
+
+The returned `MatchmakingTicket` is `QUEUED` and already reports each player's team. One free blue seat remains, so a regular ticket completes the session:
+
+```sh
+aws gamelift start-matchmaking \
+  --endpoint-url http://localhost:9080 \
+  --region us-east-1 \
+  --configuration-name backfill \
+  --ticket-id ticket-dave \
+  --players '[{ "PlayerId": "dave" }]'
+```
+
+Both tickets reach `COMPLETED` within a tick or two, and the `MatchmakingSucceeded` event carries all four players. Repeating the first call with the same `--game-session-arn` while it is still searching cancels the earlier ticket; see [Match backfill](../feature/backfill.md).
+
 ## Stop a ticket
+
+Backfill tickets are stopped the same way — `StopMatchBackfill` is not a GameLift operation, and fmlocal answers it with `UnknownOperationException` as AWS does.
 
 ```sh
 aws gamelift stop-matchmaking \
@@ -217,7 +250,3 @@ fmlocal maps domain errors to the GameLift-documented error codes:
 | `NotFound` on ticket/config/rule set      | 404  | `NotFoundException`        |
 | Invalid state transition                  | 400  | `InvalidRequestException`  |
 | Anything else                             | 500  | `InternalServiceException` |
-
-## Unsupported operations
-
-`StartMatchBackfill` and `StopMatchBackfill` intentionally return `UnsupportedOperation` — fmlocal does not implement game-session placement.

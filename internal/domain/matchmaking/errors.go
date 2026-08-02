@@ -12,5 +12,8 @@ var (
 	ErrInvalidRuleSet        = errors.New("matchmaking: invalid rule set")
 	ErrProposalNotFound      = errors.New("matchmaking: ticket is not in a pending proposal")
 	ErrPlayerNotInTicket     = errors.New("matchmaking: player is not part of this ticket")
-	ErrBackfillUnsupported   = errors.New("matchmaking: backfill is not supported")
+	// ErrBackfillInProgress reports that the game session's previous backfill
+	// request has already been matched — it awaits acceptance or is being
+	// placed — so a new request cannot supersede it.
+	ErrBackfillInProgress = errors.New("matchmaking: the game session's previous backfill request is already matched")
 )

@@ -21,13 +21,15 @@ type Ticket struct {
 	// paths such as DescribeMatchmaking and the web UI (which read it), so each
 	// accessor takes a read lock and each mutator a write lock. Immutable fields
 	// fixed at construction (id, configurationName, configurationARN, players,
-	// startTime) are read without the lock.
+	// isBackfill, gameSessionARN, startTime) are read without the lock.
 	mu sync.RWMutex
 
 	id                TicketID
 	configurationName ConfigurationName
 	configurationARN  string
 	players           []Player
+	isBackfill        bool
+	gameSessionARN    string
 	status            TicketStatus
 	statusReason      string
 	statusMessage     string
@@ -45,6 +47,40 @@ type Ticket struct {
 // NewTicket constructs a freshly-created ticket in StatusQueued. It emits a
 // SearchingStarted event so the client sees matchmaking activity immediately.
 func NewTicket(id TicketID, cfg Configuration, players []Player, now time.Time) (*Ticket, error) {
+	return newTicket(id, cfg, players, now)
+}
+
+// NewBackfillTicket constructs the ticket behind a StartMatchBackfill request:
+// a request to fill the empty seats of a match already under way. It is an
+// ordinary ticket in every respect the state machine cares about — same
+// statuses, same events — and differs only in what it carries.
+//
+// gameSessionARN identifies the session being refilled. It is optional (AWS
+// documents GameSessionArn as unnecessary in STANDALONE mode) and, when given,
+// is the key the application layer supersedes an earlier request for.
+func NewBackfillTicket(id TicketID, cfg Configuration, players []Player, gameSessionARN string, now time.Time) (*Ticket, error) {
+	t, err := newTicket(id, cfg, players, now)
+	if err != nil {
+		return nil, err
+	}
+	t.isBackfill = true
+	t.gameSessionARN = gameSessionARN
+	// Unlike a regular ticket, a backfill request states each player's team up
+	// front — those players already sit on it in the running session — and AWS
+	// reports that membership from the moment the request is made. Seed it so
+	// every reader of PlayerTeam (DescribeMatchmaking, the event payloads) sees
+	// it immediately; SetPlayerTeams later overwrites it with the engine's
+	// expanded slot name once a match forms.
+	t.playerTeams = make(map[string]string, len(players))
+	for _, p := range players {
+		t.playerTeams[p.ID] = p.Team
+	}
+	return t, nil
+}
+
+// newTicket holds the construction both ticket kinds share: validation, the
+// immutable fields, and the initial MatchmakingSearching event.
+func newTicket(id TicketID, cfg Configuration, players []Player, now time.Time) (*Ticket, error) {
 	if id == "" {
 		return nil, fmt.Errorf("matchmaking: ticket id is required")
 	}
@@ -74,6 +110,8 @@ func (t *Ticket) ConfigurationName() ConfigurationName { return t.configurationN
 func (t *Ticket) ConfigurationARN() string             { return t.configurationARN }
 func (t *Ticket) StartTime() time.Time                 { return t.startTime }
 func (t *Ticket) Players() []Player                    { return slices.Clone(t.players) }
+func (t *Ticket) IsBackfill() bool                     { return t.isBackfill }
+func (t *Ticket) GameSessionARN() string               { return t.gameSessionARN }
 
 func (t *Ticket) Status() TicketStatus {
 	t.mu.RLock()
@@ -291,6 +329,30 @@ func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 	t.endTime = now
 	t.statusReason = "Cancelled"
 	t.statusMessage = "A player failed to accept the proposed match"
+	t.recordEvent(EventMatchmakingCancelled{
+		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
+		ticketID:  t.id, matchID: t.matchID,
+		reason: t.statusReason, message: t.statusMessage, ruleMetrics: t.ruleMetrics,
+	})
+	return nil
+}
+
+// MarkCancelledBySuperseded is used for a waiting backfill ticket that a newer
+// StartMatchBackfill request for the same game session has replaced, following
+// FlexMatch's rule that a game session has at most one outstanding backfill
+// request. As with every other cancellation the ticket ends CANCELLED and emits
+// MatchmakingCancelled — the wire event is the same shape AWS sends, so a
+// consumer that needs to tell the causes apart reads the ticket's StatusMessage
+// via DescribeMatchmaking.
+func (t *Ticket) MarkCancelledBySuperseded(now time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err := t.transition(StatusCancelled); err != nil {
+		return err
+	}
+	t.endTime = now
+	t.statusReason = "Cancelled"
+	t.statusMessage = "Superseded by a newer backfill request for the same game session"
 	t.recordEvent(EventMatchmakingCancelled{
 		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
 		ticketID:  t.id, matchID: t.matchID,

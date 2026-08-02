@@ -4,7 +4,7 @@ A local, self-contained server that emulates the AWS GameLift FlexMatch matchmak
 
 ## What you get
 
-- **GameLift-compatible JSON-RPC endpoint** on port `9080`: `StartMatchmaking`, `StopMatchmaking`, `DescribeMatchmaking`, `AcceptMatch`, `Describe/ListMatchmakingConfigurations`, `Describe/ListMatchmakingRuleSets`, and `ValidateMatchmakingRuleSet`.
+- **GameLift-compatible JSON-RPC endpoint** on port `9080`: `StartMatchmaking`, `StopMatchmaking`, `DescribeMatchmaking`, `AcceptMatch`, `StartMatchBackfill`, `Describe/ListMatchmakingConfigurations`, `Describe/ListMatchmakingRuleSets`, and `ValidateMatchmakingRuleSet`.
 - **Web UI** on port `9081`: read-only operator view for rule sets, configurations, and live tickets.
 - **Event publishers**: SNS-over-HTTP and SQS (EventBridge-shaped payload).
 - **Config-file driven**: YAML describes ports, configurations, rule sets, and publishers. Rule sets are plain FlexMatch JSON; acceptance and timeout settings come from the matchmaking configuration, as they do on GameLift.
@@ -38,6 +38,7 @@ aws gamelift describe-matchmaking-configurations \
   - [Logging](docs/usage/logging.md)
 - Features
   - [Event publishers](docs/feature/publishers.md)
+  - [Match backfill](docs/feature/backfill.md)
 - Development
   - [Running locally (from source)](docs/development/local.md)
   - [Architecture](docs/development/architecture.md)

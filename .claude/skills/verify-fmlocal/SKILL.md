@@ -1,6 +1,6 @@
 ---
 name: verify-fmlocal
-description: Verify, smoke test, or check FlexMatch matchmaking event flows for fmlocal. Confirms MatchmakingSearching, MatchmakingSucceeded, MatchmakingCancelled, MatchmakingTimedOut, PotentialMatchCreated, AcceptMatch, and AcceptMatchCompleted events — including the acceptance-failure re-queue (MatchmakingSearching) and per-ticket cancellation (MatchmakingCancelled) — appear in ElasticMQ after docker compose up.
+description: Verify, smoke test, or check FlexMatch matchmaking event flows for fmlocal. Confirms MatchmakingSearching, MatchmakingSucceeded, MatchmakingCancelled, MatchmakingTimedOut, PotentialMatchCreated, AcceptMatch, and AcceptMatchCompleted events — including the acceptance-failure re-queue (MatchmakingSearching), per-ticket cancellation (MatchmakingCancelled), and the StartMatchBackfill flows — appear in ElasticMQ after docker compose up.
 ---
 
 # verify-fmlocal
@@ -44,6 +44,8 @@ bash .claude/skills/verify-fmlocal/smoke.sh <mode>
 | `rejected` | 承認フロー・1人 REJECT | 数秒 |
 | `acceptance-timedout` | 承認フロー・誰も応答しない | 約 35 秒 |
 | `timedout` | requestTimeout 経過 | 約 65 秒 |
+| `backfill` | backfill でセッションの空席を埋める | 数秒 |
+| `backfill-superseded` | 同一 GameSessionArn への再リクエスト | 数秒 |
 | `all` | 全フロー順番に実行 | 約 100 秒 |
 
 各モードはキューをパージしてから実行するため、前回の残留メッセージの影響を受けない。
@@ -104,14 +106,26 @@ bash .claude/skills/verify-fmlocal/smoke.sh <mode>
   AcceptMatchCompleted   ×1  → acceptance: "TimedOut"
   MatchmakingCancelled   ×2  → 誰も承認しなかったので両チケットとも打ち切り
                                （MatchmakingTimedOut ではない）
+
+[backfill]  ← backfill 設定
+  MatchmakingSearching   ×2  → backfill チケットは投入時から players[].team が付く
+  PotentialMatchCreated  ×1
+  MatchmakingSucceeded   ×1  → 着席済み3人 + 新規1人の計4人が team 付きで載る
+
+[backfill-superseded]  ← backfill 設定
+  MatchmakingSearching   ×1  → 1件目
+  MatchmakingCancelled   ×1  → 1件目（message: "Superseded by a newer backfill
+                               request for the same game session"）
+  MatchmakingSearching   ×1  → 2件目
 ```
 
 ## 設定ファイル
 
 | ファイル | 役割 |
 |---|---|
-| `deploy/local/config.yaml` | `default`（承認なし, timeout=60s）/ `accept`（承認あり, acceptTimeout=30s, timeout=120s） |
+| `deploy/local/config.yaml` | `default`（承認なし, timeout=60s）/ `accept`（承認あり, acceptTimeout=30s, timeout=120s）/ `backfill`（承認なし, timeout=60s） |
 | `deploy/local/rulesets/1v1.json` | skill 差 50 以内でマッチ |
+| `deploy/local/rulesets/2v2-backfill.json` | 2人×2チーム, `backfillPriority: high`。1チケットだけでは成立しないので backfill の効果が見える |
 | `deploy/local/elasticmq.conf` | `fmlocal-events` キュー定義 |
 
 ## ゴッチャ
@@ -120,6 +134,8 @@ bash .claude/skills/verify-fmlocal/smoke.sh <mode>
 - **`MatchmakingTimedOut` はリクエストレベル専用**: `requestTimeoutSeconds` 経過時のみ発行する。承認タイムアウト（`acceptanceTimeoutSeconds` 経過）は `MatchmakingTimedOut` ではなく `MatchmakingCancelled`（＋ `AcceptMatchCompleted` acceptance=`TimedOut`）になる。
 - **`rejected` 後は承認チケットが残る**: 再キューされたチケットは `SEARCHING` のまま生き続けるため、smoke.sh は後始末で `stop-matchmaking` を呼ぶ。
 - **SQS visibility timeout のデフォルトは 10 秒**: `receive-message` で取得したメッセージを `--visibility-timeout 60` なしで読むと、10 秒後にキューへ戻って重複受信する。smoke.sh は 60 秒を指定している。
+- **backfill チケットも通常チケットと同じ**: 専用のイベント種別・ステータスはない。停止は `stop-matchmaking`（`StopMatchBackfill` という operation は GameLift に存在せず、fmlocal も `UnknownOperationException` を返す）。`start-match-backfill` は全プレイヤーに `Team` が必須で、通常の `start-matchmaking` では逆に `Team` を指定すると 400 になる。
+- **置き換えは `--game-session-arn` 指定時のみ**: 同一 ARN への再リクエストで先行チケットが `CANCELLED` になる。ARN を省略すると置き換えは起こらず、リクエストが並列に queue される。先行が `REQUIRES_ACCEPTANCE` / `PLACING` の場合は置き換えず 400 `InvalidRequestException` を返す（AWS からの意図的な逸脱）。
 - **`--no-sign-request` が必要**: ダミー認証情報（`AWS_ACCESS_KEY_ID=x`）でも CLI が起動するが、`--no-sign-request` がないと署名エラーになる。
 
 ## 停止

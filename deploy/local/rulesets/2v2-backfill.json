@@ -1,0 +1,24 @@
+{
+  "name": "2v2-backfill",
+  "ruleLanguageVersion": "1.0",
+  "playerAttributes": [
+    {"name": "skill", "type": "number"}
+  ],
+  "algorithm": {
+    "strategy": "exhaustiveSearch",
+    "backfillPriority": "high"
+  },
+  "teams": [
+    {"name": "red",  "minPlayers": 2, "maxPlayers": 2},
+    {"name": "blue", "minPlayers": 2, "maxPlayers": 2}
+  ],
+  "rules": [
+    {
+      "name": "FairSkill",
+      "type": "distance",
+      "measurements": ["avg(teams[red].players.attributes[skill])"],
+      "referenceValue": "avg(teams[blue].players.attributes[skill])",
+      "maxDistance": 50
+    }
+  ]
+}

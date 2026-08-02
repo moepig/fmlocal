@@ -41,6 +41,7 @@ Application service that orchestrates the domain + engine + publishers and owns 
 | `start.go`          | `StartMatchmaking` use case.                        |
 | `stop.go`           | `StopMatchmaking` use case.                         |
 | `accept.go`         | `AcceptMatch` use case.                             |
+| `backfill.go`       | `StartMatchBackfill` use case, including the one-request-per-game-session supersession. |
 | `describe.go`       | `DescribeMatchmaking` query.                        |
 | `tick.go`           | `Tick`: advances the engine, drives state transitions, publishes events. |
 | `ticker.go`         | Goroutine that calls `Tick` on a fixed interval for every configuration. |

@@ -24,11 +24,21 @@ matchmakingConfigurations:
     flexMatchMode: STANDALONE
     notificationTargets: [primarySNS]
 
+  - name: backfill
+    ruleSetName: 2v2-backfill
+    requestTimeoutSeconds: 60
+    acceptanceRequired: false
+    backfillMode: MANUAL
+    flexMatchMode: STANDALONE
+    notificationTargets: [primarySNS]
+
 ruleSets:
   - name: 1v1
     path: ../rulesets/1v1.json
   - name: 1v1-accept
     path: ../rulesets/1v1-accept.json
+  - name: 2v2-backfill
+    path: ../rulesets/2v2-backfill.json
 
 publishers:
   - id: primarySNS

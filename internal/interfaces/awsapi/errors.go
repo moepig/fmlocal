@@ -38,10 +38,6 @@ func newNotFound(format string, args ...any) *APIError {
 	return &APIError{TypeName: "NotFoundException", Message: fmt.Sprintf(format, args...), HTTPStatus: 400}
 }
 
-func newUnsupported(format string, args ...any) *APIError {
-	return &APIError{TypeName: "UnsupportedOperationException", Message: fmt.Sprintf(format, args...), HTTPStatus: 400}
-}
-
 func newUnknownOperation(format string, args ...any) *APIError {
 	return &APIError{TypeName: "UnknownOperationException", Message: fmt.Sprintf(format, args...), HTTPStatus: 400}
 }
@@ -64,10 +60,9 @@ func translateDomainError(err error) *APIError {
 		errors.Is(err, mm.ErrProposalNotFound),
 		errors.Is(err, mm.ErrInvalidTransition),
 		errors.Is(err, mm.ErrInvalidRuleSet),
-		errors.Is(err, mm.ErrInvalidRequest):
+		errors.Is(err, mm.ErrInvalidRequest),
+		errors.Is(err, mm.ErrBackfillInProgress):
 		return newInvalidRequest("%v", err)
-	case errors.Is(err, mm.ErrBackfillUnsupported):
-		return newUnsupported("%v", err)
 	}
 	return newInternal("%v", err)
 }

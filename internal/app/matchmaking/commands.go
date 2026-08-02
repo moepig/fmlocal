@@ -8,6 +8,17 @@ type StartMatchmakingCommand struct {
 	Players           []mm.Player
 }
 
+// StartMatchBackfillCommand asks to fill the empty seats of a match already
+// under way. Every player carries the Team they occupy in the running session.
+// GameSessionARN is optional; when set it is the key an earlier, still-waiting
+// backfill request for the same session is superseded by.
+type StartMatchBackfillCommand struct {
+	ConfigurationName mm.ConfigurationName
+	TicketID          mm.TicketID
+	GameSessionARN    string
+	Players           []mm.Player
+}
+
 type StopMatchmakingCommand struct {
 	TicketID mm.TicketID
 }

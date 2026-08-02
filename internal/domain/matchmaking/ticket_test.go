@@ -72,6 +72,53 @@ func TestTicket_SetPlayerTeamsRecordsOwnPlayersOnly(t *testing.T) {
 	assert.Equal(t, "", tk.PlayerTeam("p2"))
 }
 
+func TestNewBackfillTicket_SeedsTeamsFromRequest(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	players := []mm.Player{{ID: "p1", Team: "red"}, {ID: "p2", Team: "blue"}}
+	tk, err := mm.NewBackfillTicket("t1", sampleConfig(), players, "arn:gs-1", now)
+	require.NoError(t, err)
+
+	assert.True(t, tk.IsBackfill())
+	assert.Equal(t, "arn:gs-1", tk.GameSessionARN())
+	assert.Equal(t, mm.StatusQueued, tk.Status())
+	// The teams the request declared are readable before any match forms.
+	assert.Equal(t, "red", tk.PlayerTeam("p1"))
+	assert.Equal(t, "blue", tk.PlayerTeam("p2"))
+	// It searches like any other ticket.
+	events := tk.PullEvents()
+	require.Len(t, events, 1)
+	assert.Equal(t, "MatchmakingSearching", events[0].EventName())
+
+	// Once a match forms the engine's expanded slot name wins.
+	tk.SetPlayerTeams(map[string]string{"p1": "red_2"})
+	assert.Equal(t, "red_2", tk.PlayerTeam("p1"))
+}
+
+func TestNewBackfillTicket_RequiresIDAndPlayers(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	_, err := mm.NewBackfillTicket("", sampleConfig(), []mm.Player{{ID: "p1", Team: "red"}}, "", now)
+	require.Error(t, err)
+	_, err = mm.NewBackfillTicket("t1", sampleConfig(), nil, "", now)
+	require.Error(t, err)
+}
+
+func TestTicket_MarkCancelledBySuperseded(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	tk, err := mm.NewBackfillTicket("t1", sampleConfig(), []mm.Player{{ID: "p1", Team: "red"}}, "arn:gs-1", now)
+	require.NoError(t, err)
+	_ = tk.PullEvents()
+	tk.ObserveSearching()
+
+	require.NoError(t, tk.MarkCancelledBySuperseded(now))
+	assert.Equal(t, mm.StatusCancelled, tk.Status())
+	assert.Equal(t, "Cancelled", tk.StatusReason())
+	assert.Contains(t, tk.StatusMessage(), "Superseded")
+	assert.Equal(t, now, tk.EndTime())
+	evs := tk.PullEvents()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "MatchmakingCancelled", evs[0].EventName())
+}
+
 func TestTicket_InvalidTransitionReturnsError(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	tk, _ := mm.NewTicket("t1", sampleConfig(), []mm.Player{{ID: "p1"}}, now)

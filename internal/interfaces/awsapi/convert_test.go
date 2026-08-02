@@ -121,7 +121,8 @@ func TestTranslateDomainError_Coverage(t *testing.T) {
 		{mm.ErrProposalNotFound, "InvalidRequestException"},
 		{mm.ErrInvalidTransition, "InvalidRequestException"},
 		{mm.ErrInvalidRuleSet, "InvalidRequestException"},
-		{mm.ErrBackfillUnsupported, "UnsupportedOperationException"},
+		{mm.ErrInvalidRequest, "InvalidRequestException"},
+		{mm.ErrBackfillInProgress, "InvalidRequestException"},
 	}
 	for _, tc := range cases {
 		apiErr := translateDomainError(tc.err)

@@ -40,6 +40,17 @@ type StartMatchmakingOutput struct {
 	MatchmakingTicket MatchmakingTicket `json:"MatchmakingTicket"`
 }
 
+type StartMatchBackfillInput struct {
+	ConfigurationName string   `json:"ConfigurationName"`
+	TicketID          string   `json:"TicketId,omitempty"`
+	GameSessionArn    string   `json:"GameSessionArn,omitempty"`
+	Players           []Player `json:"Players"`
+}
+
+type StartMatchBackfillOutput struct {
+	MatchmakingTicket MatchmakingTicket `json:"MatchmakingTicket"`
+}
+
 type StopMatchmakingInput struct {
 	TicketID string `json:"TicketId"`
 }

@@ -9,8 +9,12 @@ import (
 )
 
 // maxStartMatchmakingPlayers is AWS's per-request player cap for
-// StartMatchmaking.
-const maxStartMatchmakingPlayers = 10
+// StartMatchmaking; maxBackfillPlayers is StartMatchBackfill's, which is larger
+// because the request lists everyone already in the game session.
+const (
+	maxStartMatchmakingPlayers = 10
+	maxBackfillPlayers         = 199
+)
 
 // AWS constrains StartMatchmaking's TicketId to this pattern and 128 chars.
 // Enforcing it also keeps "|" out of ticket ids, which the proposal tracker
@@ -112,6 +116,44 @@ func (s *Server) handleAcceptMatch(r *http.Request, body []byte) (any, error) {
 	return map[string]any{}, nil
 }
 
-func (s *Server) handleStartMatchBackfill(_ *http.Request, _ []byte) (any, error) {
-	return nil, newUnsupported("StartMatchBackfill is not supported by fmlocal")
+func (s *Server) handleStartMatchBackfill(r *http.Request, body []byte) (any, error) {
+	var in StartMatchBackfillInput
+	if err := s.decodeJSON(body, &in); err != nil {
+		return nil, err
+	}
+	// ConfigurationName is not checked for emptiness: AWS constrains it to
+	// [a-zA-Z0-9-.]* with no minimum length, so "" is a well-formed name that
+	// simply resolves to nothing. It falls through to the lookup below and
+	// answers NotFoundException, as StartMatchmaking does.
+	if len(in.TicketID) > maxTicketIDLength || !ticketIDPattern.MatchString(in.TicketID) {
+		return nil, newInvalidRequest("TicketId must match [a-zA-Z0-9-.]* and be at most %d characters", maxTicketIDLength)
+	}
+	if len(in.Players) == 0 {
+		return nil, newInvalidRequest("Players is required")
+	}
+	if len(in.Players) > maxBackfillPlayers {
+		return nil, newInvalidRequest("Players must contain at most %d items, got %d", maxBackfillPlayers, len(in.Players))
+	}
+	// Everyone listed is already seated in the session being refilled, so AWS
+	// requires the team each of them occupies. The engine checks that the name
+	// resolves against the rule set; only its presence is a wire-level concern.
+	for _, p := range in.Players {
+		if p.Team == "" {
+			return nil, newInvalidRequest("Player %q: the backfill request must specify the team membership for every player", p.PlayerID)
+		}
+	}
+	// GameSessionArn is not validated as an ARN, nor resolved: fmlocal knows
+	// nothing about game sessions, and AWS documents the member as unnecessary
+	// in STANDALONE mode. It serves only as the key one backfill request
+	// supersedes another by.
+	ticket, err := s.service.StartMatchBackfill(r.Context(), appmm.StartMatchBackfillCommand{
+		ConfigurationName: mm.ConfigurationName(in.ConfigurationName),
+		TicketID:          mm.TicketID(in.TicketID),
+		GameSessionARN:    in.GameSessionArn,
+		Players:           playersFromDTO(in.Players),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return StartMatchBackfillOutput{MatchmakingTicket: ticketToDTO(ticket)}, nil
 }

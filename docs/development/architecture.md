@@ -115,7 +115,7 @@ Publishers never fail the caller: `Service.dispatchEvents` logs and continues, b
 
 ## What fmlocal deliberately does not do
 
-- **Game session placement.** `flexMatchMode: WITH_QUEUE` and `StartMatchBackfill` are unsupported; only `STANDALONE` matchmaking is implemented.
+- **Game session placement.** `flexMatchMode: WITH_QUEUE` is unsupported; only `STANDALONE` matchmaking is implemented. `StartMatchBackfill` is served, but its `GameSessionArn` is an opaque key rather than a session fmlocal knows about, and `backfillMode: AUTOMATIC` is rejected.
 - **Persistence.** Everything is in-memory. Restart clears tickets.
 - **Authentication.** Credentials are ignored. fmlocal is a development tool; do not expose it publicly.
 

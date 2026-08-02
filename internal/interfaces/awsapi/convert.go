@@ -13,7 +13,11 @@ func playersFromDTO(in []Player) []flexi.Player {
 	out := make([]flexi.Player, 0, len(in))
 	for _, p := range in {
 		out = append(out, flexi.Player{
-			ID:         p.PlayerID,
+			ID: p.PlayerID,
+			// Team is the seat a player already occupies in the session a
+			// backfill request refills. StartMatchmaking rejects it outright,
+			// so it only ever arrives here from StartMatchBackfill.
+			Team:       p.Team,
 			Attributes: attributesFromDTO(p.PlayerAttributes),
 			Latencies:  p.LatencyInMs,
 		})

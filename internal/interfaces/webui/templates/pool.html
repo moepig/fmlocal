@@ -8,13 +8,15 @@
 <h1>Pool: {{.Name}}</h1>
 <table border="1" cellpadding="4">
   <thead>
-    <tr><th>Ticket</th><th>Status</th><th>Start</th><th>Match ID</th></tr>
+    <tr><th>Ticket</th><th>Status</th><th>Backfill</th><th>Game Session</th><th>Start</th><th>Match ID</th></tr>
   </thead>
   <tbody>
   {{- range .Tickets}}
     <tr>
       <td>{{.TicketID}}</td>
       <td>{{.Status}}</td>
+      <td>{{.Backfill}}</td>
+      <td>{{.GameSession}}</td>
       <td>{{.StartTime}}</td>
       <td>{{.MatchID}}</td>
     </tr>

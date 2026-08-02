@@ -243,16 +243,19 @@ type stack struct {
 
 func buildStack(t *testing.T, acceptance bool) *stack {
 	t.Helper()
-	sink := newEventSink(t)
-	var rsBody []byte
-	var rsName mm.RuleSetName
 	if acceptance {
-		rsBody = []byte(acceptanceRuleSet)
-		rsName = "1v1-accept"
-	} else {
-		rsBody = []byte(basicRuleSet)
-		rsName = "1v1"
+		return buildStackWith(t, "1v1-accept", acceptanceRuleSet, true)
 	}
+	return buildStackWith(t, "1v1", basicRuleSet, false)
+}
+
+// buildStackWith runs the whole server stack — engine, ticker, notification
+// publisher and AWS API — over the given rule set, so a test can exercise a
+// shape the two default 1v1 sets do not cover.
+func buildStackWith(t *testing.T, rsName mm.RuleSetName, ruleSet string, acceptance bool) *stack {
+	t.Helper()
+	sink := newEventSink(t)
+	rsBody := []byte(ruleSet)
 
 	clk := sysclock.System{}
 	ids := idgen.NewUUID()
@@ -621,16 +624,188 @@ func TestE2E_StopMatchmakingCancels(t *testing.T) {
 	st.sink.waitFor(t, "MatchmakingCancelled")
 }
 
-func TestE2E_BackfillReturnsUnsupportedOperation(t *testing.T) {
+// backfillRuleSet needs teams a single new ticket cannot fill on its own, so a
+// match only forms once a backfill request seats the players already in play.
+const backfillRuleSet = `{
+  "name": "2v2-backfill",
+  "ruleLanguageVersion": "1.0",
+  "algorithm": {"strategy": "exhaustiveSearch", "backfillPriority": "high"},
+  "teams": [
+    {"name": "red",  "minPlayers": 2, "maxPlayers": 2},
+    {"name": "blue", "minPlayers": 2, "maxPlayers": 2}
+  ]
+}`
+
+// seatedPlayers is the roster of a 2v2 session with one blue seat empty, as a
+// game server would report it to StartMatchBackfill.
+func seatedPlayers() []types.Player {
+	return []types.Player{
+		{PlayerId: aws.String("p1"), Team: aws.String("red")},
+		{PlayerId: aws.String("p2"), Team: aws.String("red")},
+		{PlayerId: aws.String("p3"), Team: aws.String("blue")},
+	}
+}
+
+func TestE2E_BackfillFillsEmptySeat(t *testing.T) {
 	if testing.Short() {
 		t.Skip("e2e test (run without -short)")
 	}
-	st := buildStack(t, false)
+	st := buildStackWith(t, "2v2-backfill", backfillRuleSet, false)
+	client := newGameLiftClient(t, st.httpSrv.URL)
+
+	out, err := client.StartMatchBackfill(context.Background(), &gamelift.StartMatchBackfillInput{
+		ConfigurationName: aws.String("cfg"),
+		TicketId:          aws.String("bf1"),
+		GameSessionArn:    aws.String("arn:aws:gamelift:us-east-1:000000000000:gamesession/gs-1"),
+		Players:           seatedPlayers(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.MatchmakingTicket)
+	assert.Equal(t, "bf1", aws.ToString(out.MatchmakingTicket.TicketId))
+	assert.Equal(t, types.MatchmakingConfigurationStatusQueued, out.MatchmakingTicket.Status)
+	// The teams the request declared come straight back, as they do on AWS.
+	require.Len(t, out.MatchmakingTicket.Players, 3)
+	assert.Equal(t, "red", aws.ToString(out.MatchmakingTicket.Players[0].Team))
+
+	_, err = client.StartMatchmaking(context.Background(), &gamelift.StartMatchmakingInput{
+		ConfigurationName: aws.String("cfg"),
+		TicketId:          aws.String("t1"),
+		Players:           []types.Player{{PlayerId: aws.String("p4")}},
+	})
+	require.NoError(t, err)
+
+	for _, id := range []string{"bf1", "t1"} {
+		waitForTicketStatus(t, client, id, "COMPLETED")
+	}
+	st.sink.waitFor(t, "MatchmakingSucceeded")
+
+	// The backfill ticket rides the ordinary event path: one searching event
+	// each, then a single match-level success carrying the whole session.
+	require.Len(t, st.sink.rawEnvelopesOfType("MatchmakingSearching"), 2)
+	succeededs := st.sink.rawEnvelopesOfType("MatchmakingSucceeded")
+	require.Len(t, succeededs, 1)
+	sd := succeededs[0]["detail"].(map[string]any)
+	assertDetailShape(t, sd, eventShape{
+		detailKeys:     []string{"type", "matchId", "tickets", "gameSessionInfo"},
+		playerRequired: []string{"playerId", "team"},
+		gsiKeys:        []string{"players", "matchId"},
+	})
+	assert.ElementsMatch(t, []string{"bf1", "t1"}, rawTicketIDs(sd))
+	// Everyone in the session is reported, the newcomer on the free blue seat.
+	assert.ElementsMatch(t, []string{"red", "red", "blue", "blue"}, rawPlayerTeams(sd))
+}
+
+func TestE2E_BackfillSupersedesEarlierRequest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("e2e test (run without -short)")
+	}
+	st := buildStackWith(t, "2v2-backfill", backfillRuleSet, false)
+	client := newGameLiftClient(t, st.httpSrv.URL)
+
+	gsARN := aws.String("arn:aws:gamelift:us-east-1:000000000000:gamesession/gs-1")
+	for _, id := range []string{"bf1", "bf2"} {
+		_, err := client.StartMatchBackfill(context.Background(), &gamelift.StartMatchBackfillInput{
+			ConfigurationName: aws.String("cfg"),
+			TicketId:          aws.String(id),
+			GameSessionArn:    gsARN,
+			Players:           seatedPlayers(),
+		})
+		require.NoError(t, err, "start backfill %s", id)
+	}
+
+	// One outstanding request per game session: the newer one displaces the
+	// older, which ends CANCELLED with a reason that says so.
+	cancelled := waitForTicketStatus(t, client, "bf1", "CANCELLED")
+	assert.Contains(t, aws.ToString(cancelled.StatusMessage), "Superseded")
+	waitForTicketStatus(t, client, "bf2", "QUEUED", "SEARCHING")
+	st.sink.waitFor(t, "MatchmakingCancelled")
+}
+
+func TestE2E_BackfillRefusedWhileMatchAwaitsAcceptance(t *testing.T) {
+	if testing.Short() {
+		t.Skip("e2e test (run without -short)")
+	}
+	st := buildStackWith(t, "2v2-backfill-accept", backfillRuleSet, true)
+	client := newGameLiftClient(t, st.httpSrv.URL)
+
+	gsARN := aws.String("arn:aws:gamelift:us-east-1:000000000000:gamesession/gs-1")
+	_, err := client.StartMatchBackfill(context.Background(), &gamelift.StartMatchBackfillInput{
+		ConfigurationName: aws.String("cfg"),
+		TicketId:          aws.String("bf1"),
+		GameSessionArn:    gsARN,
+		Players:           seatedPlayers(),
+	})
+	require.NoError(t, err)
+	_, err = client.StartMatchmaking(context.Background(), &gamelift.StartMatchmakingInput{
+		ConfigurationName: aws.String("cfg"),
+		TicketId:          aws.String("t1"),
+		Players:           []types.Player{{PlayerId: aws.String("p4")}},
+	})
+	require.NoError(t, err)
+	waitForTicketStatus(t, client, "bf1", "REQUIRES_ACCEPTANCE")
+
+	// fmlocal refuses to replace a request already in a proposal rather than
+	// cancel the sibling ticket out from under it.
+	_, err = client.StartMatchBackfill(context.Background(), &gamelift.StartMatchBackfillInput{
+		ConfigurationName: aws.String("cfg"),
+		TicketId:          aws.String("bf2"),
+		GameSessionArn:    gsARN,
+		Players:           seatedPlayers(),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidRequestException")
+
+	// The game server accepts for the players it already has seated, as it must
+	// against AWS, and the match completes.
+	_, err = client.AcceptMatch(context.Background(), &gamelift.AcceptMatchInput{
+		TicketId:       aws.String("bf1"),
+		PlayerIds:      []string{"p1", "p2", "p3"},
+		AcceptanceType: types.AcceptanceTypeAccept,
+	})
+	require.NoError(t, err)
+	_, err = client.AcceptMatch(context.Background(), &gamelift.AcceptMatchInput{
+		TicketId:       aws.String("t1"),
+		PlayerIds:      []string{"p4"},
+		AcceptanceType: types.AcceptanceTypeAccept,
+	})
+	require.NoError(t, err)
+	for _, id := range []string{"bf1", "t1"} {
+		waitForTicketStatus(t, client, id, "COMPLETED")
+	}
+	st.sink.waitFor(t, "AcceptMatchCompleted")
+	st.sink.waitFor(t, "MatchmakingSucceeded")
+}
+
+func TestE2E_BackfillRejectsPlayerWithoutTeam(t *testing.T) {
+	if testing.Short() {
+		t.Skip("e2e test (run without -short)")
+	}
+	st := buildStackWith(t, "2v2-backfill", backfillRuleSet, false)
 	client := newGameLiftClient(t, st.httpSrv.URL)
 	_, err := client.StartMatchBackfill(context.Background(), &gamelift.StartMatchBackfillInput{
 		ConfigurationName: aws.String("cfg"),
 		Players:           []types.Player{{PlayerId: aws.String("p1")}},
 	})
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "UnsupportedOperationException") || strings.Contains(err.Error(), "not supported"))
+	assert.Contains(t, err.Error(), "InvalidRequestException")
+}
+
+func TestE2E_StopMatchBackfillIsUnknownOperation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("e2e test (run without -short)")
+	}
+	st := buildStack(t, false)
+	// StopMatchBackfill is not a GameLift operation — backfill tickets are
+	// stopped with StopMatchmaking — so it is not in the SDK and reaching the
+	// server under that target must answer as AWS does.
+	req, err := http.NewRequest("POST", st.httpSrv.URL+"/", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "GameLift.StopMatchBackfill")
+	resp, err := st.httpSrv.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	assert.Equal(t, 400, resp.StatusCode)
+	assert.Contains(t, string(body), "UnknownOperationException")
 }

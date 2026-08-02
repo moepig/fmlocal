@@ -3,6 +3,7 @@ package awsapi_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -213,11 +214,86 @@ func TestStopMatchmaking_CancelsTicket(t *testing.T) {
 	assert.Equal(t, "CANCELLED", out.TicketList[0].Status)
 }
 
-func TestStartMatchBackfill_IsUnsupported(t *testing.T) {
+func TestStartMatchBackfill_QueuesTicketWithTeams(t *testing.T) {
 	h := setup(t)
+	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+	  "ConfigurationName": "c1",
+	  "GameSessionArn": "arn:aws:gamelift:us-east-1:000000000000:gamesession/gs-1",
+	  "Players": [{"PlayerId": "p1", "Team": "red", "PlayerAttributes": {"skill": {"N": 50}}}]
+	}`)
+	require.Equal(t, 200, code)
+	var out awsapi.StartMatchBackfillOutput
+	require.NoError(t, json.Unmarshal(body, &out))
+	assert.Equal(t, "ticket-1", out.MatchmakingTicket.TicketID)
+	assert.Equal(t, "QUEUED", out.MatchmakingTicket.Status)
+	// AWS reports a backfill ticket's team membership from the moment the
+	// request is made, not only once a match forms.
+	require.Len(t, out.MatchmakingTicket.Players, 1)
+	assert.Equal(t, "red", out.MatchmakingTicket.Players[0].Team)
+}
+
+func TestStartMatchBackfill_RequiresTeamOnEveryPlayer(t *testing.T) {
+	h := setup(t)
+	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+	  "ConfigurationName": "c1",
+	  "Players": [{"PlayerId": "p1", "Team": "red"}, {"PlayerId": "p2"}]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
+}
+
+func TestStartMatchBackfill_RequiresPlayers(t *testing.T) {
+	h := setup(t)
+	// AWS gives Players a minimum of 1 item, so an absent list violates a
+	// documented constraint.
 	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{"ConfigurationName": "c1"}`)
 	assert.Equal(t, 400, code)
-	assert.Contains(t, string(body), "UnsupportedOperationException")
+	assert.Contains(t, string(body), "InvalidRequestException")
+}
+
+func TestStartMatchBackfill_UnknownConfigurationIsNotFound(t *testing.T) {
+	h := setup(t)
+	players := `[{"PlayerId": "p1", "Team": "red"}]`
+	// ConfigurationName has no minimum length on AWS, so an empty name is a
+	// well-formed one that resolves to nothing — the same answer an unknown
+	// name gets, and the same StartMatchmaking gives.
+	for _, name := range []string{`""`, `"ghost"`} {
+		code, body := call(t, h.httpSrv, "StartMatchBackfill", `{"ConfigurationName": `+name+`, "Players": `+players+`}`)
+		assert.Equal(t, 400, code, name)
+		assert.Contains(t, string(body), "NotFoundException", name)
+	}
+	for _, name := range []string{`""`, `"ghost"`} {
+		code, body := call(t, h.httpSrv, "StartMatchmaking", `{"ConfigurationName": `+name+`, "Players": [{"PlayerId": "p1"}]}`)
+		assert.Equal(t, 400, code, name)
+		assert.Contains(t, string(body), "NotFoundException", name)
+	}
+}
+
+func TestStartMatchBackfill_MoreThan199PlayersIsRejected(t *testing.T) {
+	h := setup(t)
+	players := make([]string, 200)
+	for i := range players {
+		players[i] = fmt.Sprintf(`{"PlayerId": "p%d", "Team": "red"}`, i)
+	}
+	// AWS caps StartMatchBackfill's Players at 199.
+	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+	  "ConfigurationName": "c1",
+	  "Players": [`+strings.Join(players, ",")+`]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
+}
+
+func TestStartMatchBackfill_UnknownTeamIsInvalidRequest(t *testing.T) {
+	h := setup(t)
+	// The rule set declares red and blue only. flexi rejects the roster with
+	// ErrInvalidTicket, which must surface as the caller's mistake, not a 500.
+	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+	  "ConfigurationName": "c1",
+	  "Players": [{"PlayerId": "p1", "Team": "green"}]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
 }
 
 func TestDescribeMatchmakingRuleSets_ReturnsBody(t *testing.T) {
