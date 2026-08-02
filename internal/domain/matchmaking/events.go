@@ -212,15 +212,22 @@ func (e EventMatchmakingTimedOut) Reason() string                      { return 
 func (e EventMatchmakingTimedOut) Message() string                     { return e.message }
 func (e EventMatchmakingTimedOut) RuleMetrics() []RuleEvaluationMetric { return e.ruleMetrics }
 
-// EventMatchmakingCancelled fires when the user stops matchmaking.
+// EventMatchmakingCancelled fires when the user stops matchmaking, and when a
+// ticket is cancelled for causing a proposal's acceptance to fail. Reason and
+// Message carry the ticket's terminal status text, which distinguishes the two
+// causes on the wire.
 type EventMatchmakingCancelled struct {
 	baseEvent
 	ticketID    TicketID
 	matchID     MatchID
+	reason      string
+	message     string
 	ruleMetrics []RuleEvaluationMetric
 }
 
 func (e EventMatchmakingCancelled) EventName() string                   { return EventNameMatchmakingCancelled }
 func (e EventMatchmakingCancelled) TicketID() TicketID                  { return e.ticketID }
 func (e EventMatchmakingCancelled) MatchID() MatchID                    { return e.matchID }
+func (e EventMatchmakingCancelled) Reason() string                      { return e.reason }
+func (e EventMatchmakingCancelled) Message() string                     { return e.message }
 func (e EventMatchmakingCancelled) RuleMetrics() []RuleEvaluationMetric { return e.ruleMetrics }

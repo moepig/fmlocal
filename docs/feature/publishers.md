@@ -46,7 +46,7 @@ Every event carries a `gameSessionInfo` block whose `players` array is the match
 | `MatchmakingSucceeded`   | A proposal is finalized; every involved ticket moves to `COMPLETED`.      |
 | `MatchmakingFailed`      | A queue-placement / internal failure. AWS reserves this for those cases and STANDALONE never hits them, so fmlocal does not emit it at runtime — it stays a valid `onlyEvents` name. Acceptance failures use `MatchmakingCancelled` instead (mirroring AWS, where the `CANCELLED` ticket status covers a proposed match players failed to accept). |
 | `MatchmakingTimedOut`    | The request-level `requestTimeoutSeconds` elapsed before the ticket could match. An acceptance-timeout is **not** a `TIMED_OUT` outcome (see `MatchmakingCancelled`). |
-| `MatchmakingCancelled`   | `StopMatchmaking` cancelled the ticket, **or** a proposal failed acceptance — the ticket that rejected or never responded is cancelled while every fully-accepted ticket returns to `SEARCHING`. |
+| `MatchmakingCancelled`   | `StopMatchmaking` cancelled the ticket, **or** a proposal failed acceptance — the ticket that rejected or never responded is cancelled while every fully-accepted ticket returns to `SEARCHING`. Both carry reason `Cancelled`; `detail.message` is the ticket's `StatusMessage`, which names the cause. |
 
 The detail fields populated per event type are implemented in `internal/infrastructure/notification/envelope.go`.
 

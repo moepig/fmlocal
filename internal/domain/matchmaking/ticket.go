@@ -293,7 +293,8 @@ func (t *Ticket) MarkCancelledByAcceptanceFailure(now time.Time) error {
 	t.statusMessage = "A player failed to accept the proposed match"
 	t.recordEvent(EventMatchmakingCancelled{
 		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
-		ticketID:  t.id, matchID: t.matchID, ruleMetrics: t.ruleMetrics,
+		ticketID:  t.id, matchID: t.matchID,
+		reason: t.statusReason, message: t.statusMessage, ruleMetrics: t.ruleMetrics,
 	})
 	return nil
 }
@@ -347,7 +348,8 @@ func (t *Ticket) MarkCancelledByAPI(now time.Time) error {
 	t.statusMessage = "Matchmaking stopped by client"
 	t.recordEvent(EventMatchmakingCancelled{
 		baseEvent: baseEvent{configName: t.configurationName, occurredAt: now},
-		ticketID:  t.id, matchID: t.matchID, ruleMetrics: t.ruleMetrics,
+		ticketID:  t.id, matchID: t.matchID,
+		reason: t.statusReason, message: t.statusMessage, ruleMetrics: t.ruleMetrics,
 	})
 	return nil
 }

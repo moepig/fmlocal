@@ -190,8 +190,7 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	case mm.EventMatchmakingTimedOut:
 		fill(ev.MatchID(), ev.TicketID(), ev.Reason(), ev.Message(), ev.RuleMetrics())
 	case mm.EventMatchmakingCancelled:
-		// AWS emits a fixed reason/message for cancellations.
-		fill(ev.MatchID(), ev.TicketID(), "Cancelled", "Cancelled by request.", ev.RuleMetrics())
+		fill(ev.MatchID(), ev.TicketID(), ev.Reason(), ev.Message(), ev.RuleMetrics())
 	default:
 		return Detail{}, fmt.Errorf("notification: unknown event %T", e)
 	}
