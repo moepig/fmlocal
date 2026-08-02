@@ -338,6 +338,75 @@ func TestService_TerminalTicketsAreEvictedAfterRetention(t *testing.T) {
 	assert.ErrorIs(t, err, flexi.ErrUnknownTicket)
 }
 
+// Eviction is driven by the retention window alone: a ticket whose window has
+// passed is dropped whatever the engine says about it, so a disagreement
+// between the two sides cannot pin a ticket in memory for good.
+func TestService_ExpiredTicketsAreDroppedWhateverTheEngineSays(t *testing.T) {
+	cases := []struct {
+		name string
+		// arrange leaves a terminal ticket "ghost" in the service whose
+		// eviction the engine will not carry out.
+		arrange func(t *testing.T, h *harness, engine *flexi.Matchmaker)
+		// engineKeepsTicket states whether the engine still holds the ticket
+		// once eviction has run, which is what makes the refusal observable.
+		engineKeepsTicket bool
+	}{
+		{
+			// The engine no longer tracks it, so there is nothing to release.
+			name: "engine has forgotten the ticket",
+			arrange: func(t *testing.T, h *harness, engine *flexi.Matchmaker) {
+				ctx := context.Background()
+				_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+					ConfigurationName: "c1", TicketID: "ghost", Players: []flexi.Player{{ID: "p1"}},
+				})
+				require.NoError(t, err)
+				require.NoError(t, h.svc.StopMatchmaking(ctx, appmm.StopMatchmakingCommand{TicketID: "ghost"}))
+				require.NoError(t, h.svc.Tick(ctx, "c1"))
+				require.NoError(t, engine.Evict("ghost"))
+			},
+		},
+		{
+			// The engine still holds the ticket as live and refuses to release
+			// it, the disagreement this branch exists for.
+			name: "engine refuses to release the ticket",
+			arrange: func(t *testing.T, h *harness, engine *flexi.Matchmaker) {
+				cfg, err := h.svc.GetConfiguration("c1")
+				require.NoError(t, err)
+				tk, err := mm.NewTicket("ghost", cfg, []mm.Player{{ID: "p1"}}, h.clock.Now())
+				require.NoError(t, err)
+				require.NoError(t, tk.MarkTimedOut("TimedOut", "Matchmaking timed out", h.clock.Now()))
+				require.NoError(t, h.svc.SaveTicket(tk))
+				require.NoError(t, engine.Enqueue(flexi.Ticket{ID: "ghost", Players: []flexi.Player{{ID: "p1"}}}))
+			},
+			engineKeepsTicket: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := setup(t, skillRS, false)
+			// Short enough that the retention window closes while the engine's
+			// own requestTimeout is still running.
+			h.svc.TicketRetention = time.Second
+			engine, err := h.svc.Engines.EngineFor("c1")
+			require.NoError(t, err)
+			tc.arrange(t, h, engine)
+
+			h.clock.Advance(2 * time.Second)
+			require.NoError(t, h.svc.Tick(context.Background(), "c1"))
+			_, err = h.svc.GetTicket("ghost")
+			assert.ErrorIs(t, err, mm.ErrTicketNotFound)
+			assert.Empty(t, h.svc.TicketsByConfiguration("c1"))
+
+			_, err = engine.Status("ghost")
+			if tc.engineKeepsTicket {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, flexi.ErrUnknownTicket)
+		})
+	}
+}
+
 func TestService_DescribeConfigurations(t *testing.T) {
 	h := setup(t, skillRS, false)
 	ctx := context.Background()
