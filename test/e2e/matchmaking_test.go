@@ -719,6 +719,59 @@ func TestE2E_BackfillSupersedesEarlierRequest(t *testing.T) {
 	assert.Contains(t, aws.ToString(cancelled.StatusMessage), "Superseded")
 	waitForTicketStatus(t, client, "bf2", "QUEUED", "SEARCHING")
 	st.sink.waitFor(t, "MatchmakingCancelled")
+
+	// The event carries the cause, so a consumer tells a supersession from a
+	// client stop without calling DescribeMatchmaking. AWS's fixed "Cancelled"
+	// reason is kept.
+	cancels := st.sink.rawEnvelopesOfType("MatchmakingCancelled")
+	require.Len(t, cancels, 1)
+	cd := cancels[0]["detail"].(map[string]any)
+	assert.Equal(t, []string{"bf1"}, rawTicketIDs(cd))
+	assert.Equal(t, "Cancelled", cd["reason"])
+	assert.Equal(t, "Superseded by a newer backfill request for the same game session", cd["message"])
+}
+
+func TestE2E_BackfillStoppedWithStopMatchmaking(t *testing.T) {
+	if testing.Short() {
+		t.Skip("e2e test (run without -short)")
+	}
+	st := buildStackWith(t, "2v2-backfill", backfillRuleSet, false)
+	client := newGameLiftClient(t, st.httpSrv.URL)
+
+	_, err := client.StartMatchBackfill(context.Background(), &gamelift.StartMatchBackfillInput{
+		ConfigurationName: aws.String("cfg"),
+		TicketId:          aws.String("bf1"),
+		GameSessionArn:    aws.String("arn:aws:gamelift:us-east-1:000000000000:gamesession/gs-1"),
+		Players:           seatedPlayers(),
+	})
+	require.NoError(t, err)
+
+	// A backfill request is withdrawn with StopMatchmaking, the only operation
+	// GameLift offers for it, and ends as any stopped ticket does.
+	_, err = client.StopMatchmaking(context.Background(), &gamelift.StopMatchmakingInput{
+		TicketId: aws.String("bf1"),
+	})
+	require.NoError(t, err)
+	stopped := waitForTicketStatus(t, client, "bf1", "CANCELLED")
+	assert.Equal(t, "Matchmaking stopped by client", aws.ToString(stopped.StatusMessage))
+	st.sink.waitFor(t, "MatchmakingCancelled")
+
+	cancels := st.sink.rawEnvelopesOfType("MatchmakingCancelled")
+	require.Len(t, cancels, 1)
+	cd := cancels[0]["detail"].(map[string]any)
+	assert.Equal(t, []string{"bf1"}, rawTicketIDs(cd))
+	assert.Equal(t, "Cancelled", cd["reason"])
+	assert.Equal(t, "Matchmaking stopped by client", cd["message"])
+
+	// The session is free to ask again once its request has ended.
+	_, err = client.StartMatchBackfill(context.Background(), &gamelift.StartMatchBackfillInput{
+		ConfigurationName: aws.String("cfg"),
+		TicketId:          aws.String("bf2"),
+		GameSessionArn:    aws.String("arn:aws:gamelift:us-east-1:000000000000:gamesession/gs-1"),
+		Players:           seatedPlayers(),
+	})
+	require.NoError(t, err)
+	waitForTicketStatus(t, client, "bf2", "QUEUED", "SEARCHING")
 }
 
 func TestE2E_BackfillRefusedWhileMatchAwaitsAcceptance(t *testing.T) {

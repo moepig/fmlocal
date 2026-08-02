@@ -3,6 +3,7 @@ package webui_test
 import (
 	"io"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,10 @@ func setup(t *testing.T) *httptest.Server {
 	tk, err := mm.NewTicket("t1", mm.Configuration{Name: "c1"}, []mm.Player{{ID: "p1"}}, time.Unix(1700000000, 0).UTC())
 	require.NoError(t, err)
 	require.NoError(t, svc.SaveTicket(tk))
+	bf, err := mm.NewBackfillTicket("bf1", mm.Configuration{Name: "c1"},
+		[]mm.Player{{ID: "p2", Team: "red"}}, "arn:gs-1", time.Unix(1700000000, 0).UTC())
+	require.NoError(t, err)
+	require.NoError(t, svc.SaveTicket(bf))
 
 	s := webui.NewServer(svc, webui.Options{Region: "us-east-1", AccountID: "000000000000"})
 	srv := httptest.NewServer(s.Handler())
@@ -44,4 +49,16 @@ func TestPool(t *testing.T) {
 	_, b := get(t, setup(t), "/pools/c1")
 	assert.Contains(t, b, "t1")
 	assert.Contains(t, b, "QUEUED")
+}
+
+// A backfill request is listed among the pool's tickets and is distinguishable
+// from a regular one, which is the whole reason the two columns exist.
+func TestPool_ShowsBackfillRequests(t *testing.T) {
+	_, b := get(t, setup(t), "/pools/c1")
+	assert.Contains(t, b, "<th>Backfill</th>")
+	assert.Contains(t, b, "<th>Game Session</th>")
+	assert.Contains(t, b, "<td>bf1</td>")
+	assert.Contains(t, b, "<td>arn:gs-1</td>")
+	// Only the backfill request is flagged; the regular ticket's cells stay empty.
+	assert.Equal(t, 1, strings.Count(b, "<td>yes</td>"))
 }

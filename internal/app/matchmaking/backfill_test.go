@@ -33,6 +33,33 @@ func seated() []flexi.Player {
 	}
 }
 
+// failBackfillAcceptance matches the backfill request bf1 with a newly started
+// ticket, has the seated players accept and the newcomer reject, and ticks
+// until the proposal has settled, which leaves bf1 back in the pool.
+func failBackfillAcceptance(t *testing.T, h *harness, newTicket mm.TicketID, newcomer string) error {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1", TicketID: newTicket, Players: []flexi.Player{{ID: newcomer}},
+	}); err != nil {
+		return err
+	}
+	if err := h.svc.Tick(ctx, "c1"); err != nil {
+		return err
+	}
+	if err := h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: "bf1", PlayerIDs: []mm.PlayerID{"p1", "p2", "p3"}, Accepted: true,
+	}); err != nil {
+		return err
+	}
+	if err := h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: newTicket, PlayerIDs: []mm.PlayerID{mm.PlayerID(newcomer)}, Accepted: false,
+	}); err != nil {
+		return err
+	}
+	return h.svc.Tick(ctx, "c1")
+}
+
 func TestService_BackfillMatchesWithNewTicket(t *testing.T) {
 	h := setup(t, backfillRS, false)
 	ctx := context.Background()
@@ -170,4 +197,210 @@ func TestService_BackfillTimesOutLikeAnyTicket(t *testing.T) {
 	require.NoError(t, h.svc.Tick(ctx, "c1"))
 	assert.Equal(t, mm.StatusTimedOut, bf.Status())
 	assert.Contains(t, h.pub.Names(), "MatchmakingTimedOut")
+}
+
+func TestService_BackfillStoppedWithStopMatchmaking(t *testing.T) {
+	h := setup(t, backfillRS, false)
+	ctx := context.Background()
+	bf, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bf1", GameSessionARN: "gs-1", Players: seated(),
+	})
+	require.NoError(t, err)
+
+	// StopMatchmaking is the only way to withdraw a backfill request — GameLift
+	// has no StopMatchBackfill — and it ends the ticket exactly as it ends a
+	// regular one.
+	require.NoError(t, h.svc.StopMatchmaking(ctx, appmm.StopMatchmakingCommand{TicketID: "bf1"}))
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	assert.Equal(t, mm.StatusCancelled, bf.Status())
+	assert.Equal(t, "Cancelled", bf.StatusReason())
+	assert.Equal(t, "Matchmaking stopped by client", bf.StatusMessage())
+	assert.Equal(t, []string{"MatchmakingSearching", "MatchmakingCancelled"}, h.pub.Names())
+}
+
+// The one-request-per-session rule binds only the request still outstanding, so
+// a session that keeps losing players may ask again once its previous request
+// has ended. Every way a request ends is exercised, because the rule is decided
+// by the ticket's status alone.
+func TestService_BackfillAllowedAgainOncePreviousEnded(t *testing.T) {
+	cases := []struct {
+		name string
+		// end drives the first request, bf1, out of the pool.
+		end  func(t *testing.T, h *harness)
+		want mm.TicketStatus
+	}{
+		{
+			name: "matched",
+			end: func(t *testing.T, h *harness) {
+				_, err := h.svc.StartMatchmaking(context.Background(), appmm.StartMatchmakingCommand{
+					ConfigurationName: "c1", TicketID: "t1", Players: []flexi.Player{{ID: "p4"}},
+				})
+				require.NoError(t, err)
+				require.NoError(t, h.svc.Tick(context.Background(), "c1"))
+			},
+			want: mm.StatusCompleted,
+		},
+		{
+			name: "timed out",
+			end: func(t *testing.T, h *harness) {
+				h.clock.Advance(61 * time.Second)
+				require.NoError(t, h.svc.Tick(context.Background(), "c1"))
+			},
+			want: mm.StatusTimedOut,
+		},
+		{
+			name: "stopped",
+			end: func(t *testing.T, h *harness) {
+				require.NoError(t, h.svc.StopMatchmaking(context.Background(),
+					appmm.StopMatchmakingCommand{TicketID: "bf1"}))
+				require.NoError(t, h.svc.Tick(context.Background(), "c1"))
+			},
+			want: mm.StatusCancelled,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := setup(t, backfillRS, false)
+			ctx := context.Background()
+			first, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+				ConfigurationName: "c1", TicketID: "bf1", GameSessionARN: "gs-1", Players: seated(),
+			})
+			require.NoError(t, err)
+			tc.end(t, h)
+			require.Equal(t, tc.want, first.Status())
+
+			second, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+				ConfigurationName: "c1", TicketID: "bf2", GameSessionARN: "gs-1", Players: seated(),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, mm.StatusQueued, second.Status())
+			// The spent request is left as it ended: a supersession would have
+			// rewritten its status message and emitted a second cancellation.
+			assert.Equal(t, tc.want, first.Status())
+			assert.NotContains(t, first.StatusMessage(), "Superseded")
+		})
+	}
+}
+
+func TestService_BackfillSupersessionIsNotRepeatedOnTheNextTick(t *testing.T) {
+	h := setup(t, backfillRS, false)
+	ctx := context.Background()
+	for _, id := range []mm.TicketID{"bf1", "bf2"} {
+		_, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+			ConfigurationName: "c1", TicketID: id, GameSessionARN: "gs-1", Players: seated(),
+		})
+		require.NoError(t, err)
+	}
+
+	// The supersession retires the earlier request outside the tick loop, which
+	// then sees a ticket already CANCELLED on both sides. It must recognise it
+	// as settled rather than announce the cancellation a second time.
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	assert.Equal(t, 1, countName(h.pub.Names(), "MatchmakingCancelled"))
+	first, err := h.svc.GetTicket("bf1")
+	require.NoError(t, err)
+	assert.Equal(t, mm.StatusCancelled, first.Status())
+}
+
+func TestService_BackfillDuplicateTicketIDIsRejected(t *testing.T) {
+	h := setup(t, backfillRS, false)
+	ctx := context.Background()
+	_, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bf1", Players: seated(),
+	})
+	require.NoError(t, err)
+	_, err = h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bf1", Players: seated(),
+	})
+	assert.ErrorIs(t, err, mm.ErrTicketAlreadyExists)
+
+	// Ticket ids are one namespace: a backfill request cannot take the id of a
+	// regular ticket either.
+	_, err = h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1", TicketID: "t1", Players: []flexi.Player{{ID: "p4"}},
+	})
+	require.NoError(t, err)
+	_, err = h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "t1", Players: seated(),
+	})
+	assert.ErrorIs(t, err, mm.ErrTicketAlreadyExists)
+}
+
+func TestService_BackfillRequestsDoNotMatchEachOther(t *testing.T) {
+	h := setup(t, backfillRS, false)
+	ctx := context.Background()
+	// Two half-empty sessions whose rosters would satisfy the rule set between
+	// them. At most one backfill request takes part in a match, and a match
+	// needs a new ticket to join it, so neither is matched into the other's
+	// session.
+	a, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bfA", GameSessionARN: "gs-1",
+		Players: []flexi.Player{{ID: "p1", Team: "red"}, {ID: "p2", Team: "red"}},
+	})
+	require.NoError(t, err)
+	b, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bfB", GameSessionARN: "gs-2",
+		Players: []flexi.Player{{ID: "p3", Team: "blue"}, {ID: "p4", Team: "blue"}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	assert.Equal(t, mm.StatusQueued, a.Status())
+	assert.Equal(t, mm.StatusQueued, b.Status())
+	assert.NotContains(t, h.pub.Names(), "PotentialMatchCreated")
+}
+
+// A backfill request whose players accepted a proposal that then failed is
+// returned to the pool as the request it was: still a backfill request, still
+// carrying the seats it reported, and still able to fill them.
+func TestService_BackfillReturnedToPoolStaysABackfillRequest(t *testing.T) {
+	h := setup(t, backfillRS, true)
+	ctx := context.Background()
+	bf, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bf1", GameSessionARN: "gs-1", Players: seated(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, failBackfillAcceptance(t, h, "t1", "p4"))
+
+	assert.Equal(t, mm.StatusSearching, bf.Status())
+	assert.Equal(t, "ACCEPTANCE_FAILED", bf.StatusReason())
+	assert.True(t, bf.IsBackfill())
+	assert.Equal(t, "gs-1", bf.GameSessionARN())
+	// The seats the request declared survive the round trip.
+	assert.Equal(t, "red", bf.PlayerTeam("p1"))
+	assert.Equal(t, "blue", bf.PlayerTeam("p3"))
+	// One searching event per ticket at the start, plus the re-queue of the
+	// backfill request, which AWS announces the same way.
+	assert.Equal(t, 3, countName(h.pub.Names(), "MatchmakingSearching"))
+
+	// It fills its empty seat with the next newcomer, as a fresh request would.
+	_, err = h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1", TicketID: "t2", Players: []flexi.Player{{ID: "p5"}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	assert.Equal(t, mm.StatusRequiresAcceptance, bf.Status())
+	assert.Equal(t, 2, countName(h.pub.Names(), "PotentialMatchCreated"))
+}
+
+func TestService_BackfillReturnedToPoolIsSupersedable(t *testing.T) {
+	h := setup(t, backfillRS, true)
+	ctx := context.Background()
+	first, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bf1", GameSessionARN: "gs-1", Players: seated(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, failBackfillAcceptance(t, h, "t1", "p4"))
+	require.Equal(t, mm.StatusSearching, first.Status())
+
+	// Back in the pool the request is waiting again, so a newer one for the
+	// same session replaces it rather than being refused.
+	second, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bf2", GameSessionARN: "gs-1", Players: seated(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, mm.StatusCancelled, first.Status())
+	assert.Contains(t, first.StatusMessage(), "Superseded")
+	assert.Equal(t, mm.StatusQueued, second.Status())
 }

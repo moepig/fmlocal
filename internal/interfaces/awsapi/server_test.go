@@ -38,7 +38,25 @@ type harness struct {
 	svc     *appmm.Service
 }
 
+// bigTeamRuleSet has room for AWS's 199-player backfill limit, which the 1v1
+// set used elsewhere would reject on team size long before the limit is
+// reached.
+const bigTeamRuleSet = `{
+  "name": "1v1",
+  "ruleLanguageVersion": "1.0",
+  "playerAttributes": [{"name": "skill", "type": "number"}],
+  "teams": [
+    {"name": "red",  "minPlayers": 1, "maxPlayers": 100},
+    {"name": "blue", "minPlayers": 1, "maxPlayers": 100}
+  ]
+}`
+
 func setup(t *testing.T) *harness {
+	t.Helper()
+	return setupWithRuleSet(t, testRuleSet)
+}
+
+func setupWithRuleSet(t *testing.T, ruleSet string) *harness {
 	t.Helper()
 	clk := sysclock.NewFake(time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC))
 	cfg := mm.Configuration{
@@ -49,7 +67,7 @@ func setup(t *testing.T) *harness {
 		FlexMatchMode:  mm.FlexMatchModeStandalone,
 		RequestTimeout: 60 * time.Second,
 	}
-	rs := mm.RuleSet{Name: "1v1", ARN: cfg.RuleSetARN, Body: []byte(testRuleSet)}
+	rs := mm.RuleSet{Name: "1v1", ARN: cfg.RuleSetARN, Body: []byte(ruleSet)}
 
 	engine, err := appmm.BuildEngine(cfg, rs, flexi.WithClock(clk))
 	require.NoError(t, err)
@@ -282,6 +300,43 @@ func TestStartMatchBackfill_MoreThan199PlayersIsRejected(t *testing.T) {
 	}`)
 	assert.Equal(t, 400, code)
 	assert.Contains(t, string(body), "InvalidRequestException")
+}
+
+func TestStartMatchBackfill_Exactly199PlayersIsAccepted(t *testing.T) {
+	h := setupWithRuleSet(t, bigTeamRuleSet)
+	players := make([]string, 199)
+	for i := range players {
+		team := "red"
+		if i >= 100 {
+			team = "blue"
+		}
+		players[i] = fmt.Sprintf(`{"PlayerId": "p%d", "Team": %q}`, i, team)
+	}
+	// 199 is the limit itself, so a session that full is still refillable.
+	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+	  "ConfigurationName": "c1",
+	  "Players": [`+strings.Join(players, ",")+`]
+	}`)
+	require.Equal(t, 200, code, string(body))
+	var out awsapi.StartMatchBackfillOutput
+	require.NoError(t, json.Unmarshal(body, &out))
+	assert.Len(t, out.MatchmakingTicket.Players, 199)
+}
+
+func TestStartMatchBackfill_InvalidTicketIDIsRejected(t *testing.T) {
+	h := setup(t)
+	// The same constraint StartMatchmaking enforces: AWS's [a-zA-Z0-9-.]* over
+	// at most 128 characters. Keeping "|" out of ticket ids also keeps the
+	// proposal tracker's composite key unambiguous.
+	for _, id := range []string{"bf|1", "bf 1", strings.Repeat("b", 129)} {
+		code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+		  "ConfigurationName": "c1",
+		  "TicketId": "`+id+`",
+		  "Players": [{"PlayerId": "p1", "Team": "red"}]
+		}`)
+		assert.Equal(t, 400, code, id)
+		assert.Contains(t, string(body), "InvalidRequestException", id)
+	}
 }
 
 func TestStartMatchBackfill_UnknownTeamIsInvalidRequest(t *testing.T) {

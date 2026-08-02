@@ -162,17 +162,15 @@ func TestTranslator_AllEventTypes(t *testing.T) {
 	}
 }
 
-// The two causes of a cancellation share AWS's "Cancelled" reason and are told
+// Every cause of a cancellation shares AWS's "Cancelled" reason and is told
 // apart by the message, which is the ticket's own StatusMessage rather than a
 // fixed string, so a consumer of the events sees why the ticket ended without
 // calling DescribeMatchmaking.
 func TestTranslator_CancelledCarriesTicketReasonAndMessage(t *testing.T) {
 	now := time.Date(2026, 4, 18, 10, 0, 0, 0, time.UTC)
 	cfg := mm.Configuration{Name: "cfg", ARN: "arn:cfg"}
-	render := func(t *testing.T, cancel func(*mm.Ticket)) notification.Detail {
+	render := func(t *testing.T, tk *mm.Ticket, cancel func(*mm.Ticket)) notification.Detail {
 		t.Helper()
-		tk, err := mm.NewTicket("t1", cfg, []mm.Player{{ID: "p1"}}, now)
-		require.NoError(t, err)
 		_ = tk.PullEvents()
 		cancel(tk)
 		tr := notification.NewTranslator(idgen.NewSequence("e-"),
@@ -182,8 +180,15 @@ func TestTranslator_CancelledCarriesTicketReasonAndMessage(t *testing.T) {
 		return env.Detail
 	}
 
+	regular := func(t *testing.T) *mm.Ticket {
+		t.Helper()
+		tk, err := mm.NewTicket("t1", cfg, []mm.Player{{ID: "p1"}}, now)
+		require.NoError(t, err)
+		return tk
+	}
+
 	t.Run("stopped by client", func(t *testing.T) {
-		d := render(t, func(tk *mm.Ticket) {
+		d := render(t, regular(t), func(tk *mm.Ticket) {
 			tk.RequestCancel()
 			require.NoError(t, tk.MarkCancelledByAPI(now))
 		})
@@ -193,13 +198,24 @@ func TestTranslator_CancelledCarriesTicketReasonAndMessage(t *testing.T) {
 	})
 
 	t.Run("acceptance failed", func(t *testing.T) {
-		d := render(t, func(tk *mm.Ticket) {
+		d := render(t, regular(t), func(tk *mm.Ticket) {
 			require.NoError(t, tk.AssignToProposal("m-1", now))
 			require.NoError(t, tk.MarkCancelledByAcceptanceFailure(now))
 		})
 		assert.Equal(t, "MatchmakingCancelled", d.Type)
 		assert.Equal(t, "Cancelled", d.Reason)
 		assert.Equal(t, "A player failed to accept the proposed match", d.Message)
+	})
+
+	t.Run("superseded by a newer backfill request", func(t *testing.T) {
+		tk, err := mm.NewBackfillTicket("t1", cfg, []mm.Player{{ID: "p1", Team: "red"}}, "arn:gs-1", now)
+		require.NoError(t, err)
+		d := render(t, tk, func(tk *mm.Ticket) {
+			require.NoError(t, tk.MarkCancelledBySuperseded(now))
+		})
+		assert.Equal(t, "MatchmakingCancelled", d.Type)
+		assert.Equal(t, "Cancelled", d.Reason)
+		assert.Equal(t, "Superseded by a newer backfill request for the same game session", d.Message)
 	})
 }
 
