@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/moepig/flexi v0.3.1
 	github.com/stretchr/testify v1.11.1
-	github.com/testcontainers/testcontainers-go v0.43.0
+	github.com/testcontainers/testcontainers-go v0.44.0
 	go.uber.org/mock v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
 )
