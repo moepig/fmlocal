@@ -43,8 +43,16 @@ type Service struct {
 	trackersMu sync.Mutex
 	trackers   map[mm.ConfigurationName]*proposalTracker
 
-	cmdMu    sync.Mutex
-	cmdLocks map[mm.ConfigurationName]*sync.Mutex
+	cmdMu             sync.Mutex
+	cmdLocks          map[mm.ConfigurationName]*sync.Mutex
+	deliveryMu        sync.Mutex
+	deliveryLanes     map[mm.ConfigurationName]*deliveryLane
+	deliveryClosing   chan struct{}
+	deliveryClosed    bool
+	deliveryProducers sync.WaitGroup
+	deliveryWorkers   sync.WaitGroup
+	deliveryContext   context.Context
+	deliveryCancel    context.CancelFunc
 }
 
 // lockConfiguration serializes the whole use-case (engine access, ticket
@@ -334,50 +342,84 @@ func (s *Service) publisher(name mm.ConfigurationName) ports.EventPublisher {
 	return noopPublisher{}
 }
 
-// eventBatch collects the events a command produces while it holds the
-// per-configuration command lock. releaseAndFlush publishes them only after the
-// lock is released, so blocking publisher I/O (HTTP/SQS) never runs inside the
-// critical section and cannot stall other commands or ticks for the same
-// configuration. Events are published in the order added, preserving
-// per-configuration ordering.
+// Holds events and ticket snapshots in generation order for one command.
 type eventBatch struct {
-	name   mm.ConfigurationName
-	events []mm.Event
+	name    mm.ConfigurationName
+	service *Service
+	lane    *deliveryLane
+	events  []recordedEvent
+	done    chan struct{}
 }
 
-func newEventBatch(name mm.ConfigurationName) *eventBatch {
-	return &eventBatch{name: name}
+type recordedEvent struct {
+	event    mm.Event
+	snapshot ports.EventSnapshot
+}
+
+func newEventBatch(s *Service, name mm.ConfigurationName, lane *deliveryLane) *eventBatch {
+	return &eventBatch{service: s, name: name, lane: lane, done: make(chan struct{})}
 }
 
 // add queues a match-level event constructed directly by the application layer.
-func (b *eventBatch) add(ev mm.Event) { b.events = append(b.events, ev) }
+func (b *eventBatch) add(ev mm.Event) {
+	ids := []mm.TicketID{}
+	if grouped, ok := ev.(interface{ TicketIDs() []mm.TicketID }); ok {
+		ids = grouped.TicketIDs()
+	} else if single, ok := ev.(interface{ TicketID() mm.TicketID }); ok {
+		ids = []mm.TicketID{single.TicketID()}
+	}
+	snapshot := make(ports.EventSnapshot, len(ids))
+	for _, id := range ids {
+		t, err := b.service.GetTicket(id)
+		if err != nil {
+			continue
+		}
+		players := t.Players()
+		saved := ports.TicketSnapshot{TicketID: string(id), StartTime: t.StartTime().UTC().Format("2006-01-02T15:04:05.000Z07:00"), Players: make([]ports.PlayerSnapshot, len(players))}
+		for i, p := range players {
+			saved.Players[i] = ports.PlayerSnapshot{PlayerID: p.ID, Team: t.PlayerTeam(mm.PlayerID(p.ID))}
+		}
+		snapshot[id] = saved
+	}
+	b.events = append(b.events, recordedEvent{event: ev, snapshot: snapshot})
+}
 
 // addTicket drains and queues the ticket's accumulated domain events. It must be
 // called while the command lock is held, since PullEvents mutates the ticket.
 func (b *eventBatch) addTicket(t *mm.Ticket) {
-	b.events = append(b.events, t.PullEvents()...)
+	for _, ev := range t.PullEvents() {
+		b.add(ev)
+	}
 }
 
-// releaseAndFlush is deferred by every command that emits events: it releases
-// the command lock and only then publishes the batch, keeping publisher I/O out
-// of the critical section. As a deferred call it runs after the command's return
-// values have been set, and the batch pointer means events queued after the
-// defer statement are still flushed.
+// Enqueues while the command lock is held, then waits outside the lock for delivery.
 func (s *Service) releaseAndFlush(ctx context.Context, unlock func(), b *eventBatch) {
+	if len(b.events) > 0 {
+		b.lane.enqueue(b)
+	}
 	unlock()
-	for _, ev := range b.events {
-		s.publishOne(ctx, b.name, ev)
+	if len(b.events) > 0 {
+		b.lane.start(s)
+	}
+	s.deliveryProducers.Done()
+	if len(b.events) == 0 {
+		<-b.lane.slots
+		return
+	}
+	select {
+	case <-b.done:
+	case <-ctx.Done():
 	}
 }
 
 // publishOne delivers a single event through the configuration's publisher.
-func (s *Service) publishOne(ctx context.Context, name mm.ConfigurationName, ev mm.Event) {
-	if err := s.publisher(name).Publish(ctx, ev); err != nil {
+func (s *Service) publishOne(ctx context.Context, name mm.ConfigurationName, ev recordedEvent) {
+	if err := s.publisher(name).Publish(ports.WithEventSnapshot(ctx, ev.snapshot), ev.event); err != nil {
 		s.logger().Warn("publish event failed",
-			"configuration", name, "event", ev.EventName(), "error", err.Error())
+			"configuration", name, "event", ev.event.EventName(), "error", err.Error())
 	} else {
 		s.logger().Debug("publish event",
-			"configuration", name, "event", ev.EventName())
+			"configuration", name, "event", ev.event.EventName())
 	}
 }
 

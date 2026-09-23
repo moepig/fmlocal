@@ -5,6 +5,7 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -44,11 +45,11 @@ type Detail struct {
 	RuleEvaluationMetric []RuleEvalMetric `json:"ruleEvaluationMetrics,omitempty"`
 	// EstimatedWaitMillis is an integer (in seconds, despite the AWS field
 	// name) or the string "NOT_AVAILABLE" when no estimate exists.
-	EstimatedWaitMillis any `json:"estimatedWaitMillis,omitempty"`
-	GameSessionInfo      *GameSessionInfo `json:"gameSessionInfo,omitempty"`
-	CustomEventData      string           `json:"customEventData,omitempty"`
-	Reason               string           `json:"reason,omitempty"`
-	Message              string           `json:"message,omitempty"`
+	EstimatedWaitMillis any              `json:"estimatedWaitMillis,omitempty"`
+	GameSessionInfo     *GameSessionInfo `json:"gameSessionInfo,omitempty"`
+	CustomEventData     string           `json:"customEventData,omitempty"`
+	Reason              string           `json:"reason,omitempty"`
+	Message             string           `json:"message,omitempty"`
 }
 
 type TicketDetail struct {
@@ -90,8 +91,7 @@ type EnvelopeSettings struct {
 	AccountID string
 }
 
-// Translator converts a domain event into an EventBridge envelope, resolving
-// the per-event detail using the TicketLookup callback.
+// Converts domain events and captured ticket information into EventBridge envelopes.
 type Translator struct {
 	ids      ports.IDGenerator
 	settings EnvelopeSettings
@@ -108,7 +108,11 @@ func NewTranslator(ids ports.IDGenerator, settings EnvelopeSettings, lookup Tick
 
 // Render produces the JSON envelope for e.
 func (t *Translator) Render(e mm.Event) (EventBridgeEnvelope, error) {
-	detail, err := t.buildDetail(e)
+	return t.RenderContext(context.Background(), e)
+}
+
+func (t *Translator) RenderContext(ctx context.Context, e mm.Event) (EventBridgeEnvelope, error) {
+	detail, err := t.buildDetail(ctx, e)
 	if err != nil {
 		return EventBridgeEnvelope{}, err
 	}
@@ -130,14 +134,18 @@ func (t *Translator) Render(e mm.Event) (EventBridgeEnvelope, error) {
 
 // Marshal returns the rendered envelope as JSON bytes.
 func (t *Translator) Marshal(e mm.Event) ([]byte, error) {
-	env, err := t.Render(e)
+	return t.MarshalContext(context.Background(), e)
+}
+
+func (t *Translator) MarshalContext(ctx context.Context, e mm.Event) ([]byte, error) {
+	env, err := t.RenderContext(ctx, e)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(env)
 }
 
-func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
+func (t *Translator) buildDetail(ctx context.Context, e mm.Event) (Detail, error) {
 	d := Detail{Type: e.EventName()}
 	// Terminal single-ticket events (Failed / TimedOut / Cancelled) share the
 	// same detail shape; fill assembles it.
@@ -145,18 +153,18 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		d.MatchID = string(matchID)
 		d.Reason = reason
 		d.Message = message
-		d.Tickets = t.lookupTickets(ticketID)
+		d.Tickets = t.lookupTickets(ctx, ticketID)
 		d.RuleEvaluationMetric = toWireRuleMetrics(metrics)
 	}
 	switch ev := e.(type) {
 	case mm.EventTicketSearchingStarted:
-		d.Tickets = t.lookupTickets(ev.TicketID())
+		d.Tickets = t.lookupTickets(ctx, ev.TicketID())
 		// AWS always includes estimatedWaitMillis on MatchmakingSearching.
 		// fmlocal does not compute wait estimates, so report NOT_AVAILABLE.
 		d.EstimatedWaitMillis = estimatedWaitNotAvailable
 	case mm.EventTicketAssignedToProposal:
 		d.MatchID = string(ev.MatchID())
-		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
+		d.Tickets = t.lookupTickets(ctx, ev.TicketIDs()...)
 		d.RuleEvaluationMetric = toWireRuleMetrics(ev.RuleMetrics())
 		required := ev.AcceptanceRequired()
 		d.AcceptanceRequired = &required
@@ -168,7 +176,7 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 		}
 	case mm.EventPlayerAcceptanceRecorded:
 		d.MatchID = string(ev.MatchID())
-		td := t.lookupTickets(ev.TicketIDs()...)
+		td := t.lookupTickets(ctx, ev.TicketIDs()...)
 		acceptances := ev.Acceptances()
 		for i := range td {
 			for j := range td[i].Players {
@@ -181,10 +189,10 @@ func (t *Translator) buildDetail(e mm.Event) (Detail, error) {
 	case mm.EventAcceptanceCompleted:
 		d.MatchID = string(ev.MatchID())
 		d.Acceptance = string(ev.Outcome())
-		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
+		d.Tickets = t.lookupTickets(ctx, ev.TicketIDs()...)
 	case mm.EventMatchmakingSucceeded:
 		d.MatchID = string(ev.MatchID())
-		d.Tickets = t.lookupTickets(ev.TicketIDs()...)
+		d.Tickets = t.lookupTickets(ctx, ev.TicketIDs()...)
 	case mm.EventMatchmakingFailed:
 		fill(ev.MatchID(), ev.TicketID(), ev.Reason(), ev.Message(), ev.RuleMetrics())
 	case mm.EventMatchmakingTimedOut:
@@ -229,14 +237,22 @@ func toWireRuleMetrics(src []mm.RuleEvaluationMetric) []RuleEvalMetric {
 	return out
 }
 
-func (t *Translator) lookupTickets(ids ...mm.TicketID) []TicketDetail {
-	if t.lookup == nil {
-		return nil
-	}
+func (t *Translator) lookupTickets(ctx context.Context, ids ...mm.TicketID) []TicketDetail {
+	snapshot, hasSnapshot := ports.EventSnapshotFromContext(ctx)
 	out := make([]TicketDetail, 0, len(ids))
 	for _, id := range ids {
-		if td, ok := t.lookup(id); ok {
-			out = append(out, td)
+		if hasSnapshot {
+			if saved, ok := snapshot[id]; ok {
+				td := TicketDetail{TicketID: saved.TicketID, StartTime: saved.StartTime, Players: make([]PlayerDetail, len(saved.Players))}
+				for i, p := range saved.Players {
+					td.Players[i] = PlayerDetail{PlayerID: p.PlayerID, Team: p.Team}
+				}
+				out = append(out, td)
+			}
+		} else if t.lookup != nil {
+			if td, ok := t.lookup(id); ok {
+				out = append(out, td)
+			}
 		}
 	}
 	return out

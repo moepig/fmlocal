@@ -27,9 +27,16 @@ func (s *Service) StartMatchBackfill(ctx context.Context, cmd StartMatchBackfill
 	if len(cmd.Players) == 0 {
 		return nil, fmt.Errorf("%w: players required", ErrInvalidCommand)
 	}
+	lane, err := s.reserveDelivery(ctx, cmd.ConfigurationName)
+	if err != nil {
+		return nil, err
+	}
 	unlock := s.lockConfiguration(cmd.ConfigurationName)
-	batch := newEventBatch(cmd.ConfigurationName)
+	batch := newEventBatch(s, cmd.ConfigurationName, lane)
 	defer s.releaseAndFlush(ctx, unlock, batch)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cfg, err := s.GetConfiguration(cmd.ConfigurationName)
 	if err != nil {
 		return nil, err

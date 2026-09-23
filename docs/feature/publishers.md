@@ -82,10 +82,13 @@ Sends the EventBridge envelope to an SQS queue as the message body — mimicking
 
 ## Delivery semantics
 
-- **Best-effort, fire-and-forget.** `Service.dispatchEvents` catches and logs publisher errors; it never rolls back the already-applied ticket transition. Real GameLift decouples matchmaking from notification the same way, so clients must not assume that a missing event means a missing state change — they should reconcile by polling `DescribeMatchmaking`.
-- **At-most-once.** fmlocal does not retry failed publishes. If an HTTP listener returns 500 or `SendMessage` fails, the event is dropped and a warning is logged. This is deliberate: delivery retry, dedup, and back-pressure are consumer-side concerns that differ per deployment.
-- **Per-ticket ordering.** Events for a given ticket are dispatched in the order the aggregate recorded them, within the serialized `dispatchEvents` call. Across tickets and configurations, order is not guaranteed.
-- **No authentication.** `sns_http` emits the stub signature `fmlocal-unsigned`. `sqs_eventbridge` passes credentials to the AWS SDK but fmlocal itself does not authenticate callers. **Do not expose fmlocal or its publishers to the public internet.**
+- Publishing failures are logged and do not roll back ticket state. Clients should reconcile missing events with `DescribeMatchmaking`.
+- Failed publishes are not retried. Each delivery attempt has a ten-second deadline.
+- Events for one configuration are attempted in generation order. Each configuration has its own delivery queue. Delivery by SNS or SQS consumers can still be delayed or reordered.
+- A command waits for its notifications to finish. Up to 64 batches per configuration can be in progress; further commands wait before changing state. This limit counts batches rather than bytes.
+- Delivery uses ticket information captured when each event is generated. Later ticket updates and retention cleanup do not change the payload.
+- On shutdown, queued notifications have up to five seconds to drain before delivery is cancelled.
+- `sns_http` emits the stub signature `fmlocal-unsigned`. `sqs_eventbridge` passes credentials to the AWS SDK; fmlocal does not authenticate callers.
 
 ## Configuration reference
 

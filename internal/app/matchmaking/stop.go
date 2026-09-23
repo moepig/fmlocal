@@ -17,13 +17,20 @@ func (s *Service) StopMatchmaking(ctx context.Context, cmd StopMatchmakingComman
 	// ConfigurationName is fixed at construction, so reading it before taking the
 	// lock is race-free; everything that mutates the ticket runs under the lock.
 	name := ticket.ConfigurationName()
+	lane, err := s.reserveDelivery(ctx, name)
+	if err != nil {
+		return err
+	}
 	unlock := s.lockConfiguration(name)
 	// StopMatchmaking only records cancel intent and tells the engine; the
 	// MatchmakingCancelled event is emitted on the next tick once the engine
 	// reports the ticket CANCELLED, so the batch stays empty here. It is kept for
 	// a uniform command shape (lock, batch, releaseAndFlush) across use cases.
-	batch := newEventBatch(name)
+	batch := newEventBatch(s, name, lane)
 	defer s.releaseAndFlush(ctx, unlock, batch)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	current, err := s.GetTicket(cmd.TicketID)
 	if err != nil || current != ticket {
 		return mm.ErrTicketNotFound

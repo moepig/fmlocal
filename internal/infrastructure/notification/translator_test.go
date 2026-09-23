@@ -1,16 +1,30 @@
 package notification_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
-	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 	"github.com/moepig/fmlocal/internal/app/defaults/idgen"
+	"github.com/moepig/fmlocal/internal/app/ports"
+	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 	"github.com/moepig/fmlocal/internal/infrastructure/notification"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTranslatorUsesCapturedTicketState(t *testing.T) {
+	tr := notification.NewTranslator(idgen.NewSequence("e-"), notification.EnvelopeSettings{}, nil)
+	ctx := ports.WithEventSnapshot(context.Background(), ports.EventSnapshot{
+		"t1": {TicketID: "t1", StartTime: "2026-01-01T00:00:00.000Z", Players: []ports.PlayerSnapshot{{PlayerID: "p1", Team: "red"}}},
+	})
+	event := mm.NewMatchmakingSucceeded("c1", "m1", []mm.TicketID{"t1"}, time.Now())
+	envelope, err := tr.RenderContext(ctx, event)
+	require.NoError(t, err)
+	require.Len(t, envelope.Detail.Tickets, 1)
+	assert.Equal(t, "red", envelope.Detail.Tickets[0].Players[0].Team)
+}
 
 func makeTicket(t *testing.T) *mm.Ticket {
 	t.Helper()

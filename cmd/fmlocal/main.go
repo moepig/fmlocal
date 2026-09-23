@@ -96,7 +96,7 @@ func run(parent context.Context, cfg *configfile.Loaded, logger *slog.Logger) er
 	svc.LoadRuleSets(cfg.RuleSets)
 
 	// Publishers
-	publisherByID, err := buildPublishers(ctx, cfg, ids, svc)
+	publisherByID, err := buildPublishers(ctx, cfg, ids)
 	if err != nil {
 		return err
 	}
@@ -147,8 +147,11 @@ func run(parent context.Context, cfg *configfile.Loaded, logger *slog.Logger) er
 	start("ticker", func(ctx context.Context) error { return ticker.Run(ctx, cfg.TickInterval) })
 
 	wg.Wait()
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	drainErr := svc.CloseDelivery(drainCtx)
+	drainCancel()
 	close(errCh)
-	var joined error
+	joined := drainErr
 	for e := range errCh {
 		joined = errors.Join(joined, e)
 	}
@@ -172,10 +175,9 @@ func findRuleSet(list []mm.RuleSet, name mm.RuleSetName) mm.RuleSet {
 	return mm.RuleSet{Name: name}
 }
 
-func buildPublishers(ctx context.Context, cfg *configfile.Loaded, ids ports.IDGenerator, svc *appmm.Service) (map[string]ports.EventPublisher, error) {
+func buildPublishers(ctx context.Context, cfg *configfile.Loaded, ids ports.IDGenerator) (map[string]ports.EventPublisher, error) {
 	out := map[string]ports.EventPublisher{}
 	settings := notification.EnvelopeSettings{Region: cfg.Region, AccountID: cfg.AccountID}
-	lookup := ticketLookup(svc)
 	// A dedicated client with an explicit timeout: http.DefaultClient has none,
 	// so an unresponsive SNS subscriber would block the publishing goroutine
 	// indefinitely.
@@ -184,7 +186,7 @@ func buildPublishers(ctx context.Context, cfg *configfile.Loaded, ids ports.IDGe
 		if !p.Enabled {
 			continue
 		}
-		translator := notification.NewTranslator(ids, settings, lookup)
+		translator := notification.NewTranslator(ids, settings, nil)
 		var pub ports.EventPublisher
 		switch p.Kind {
 		case configfile.PublisherKindSNSHTTP:
@@ -216,28 +218,4 @@ func buildPublishers(ctx context.Context, cfg *configfile.Loaded, ids ports.IDGe
 		out[p.ID] = pub
 	}
 	return out, nil
-}
-
-// ticketLookup returns a callback suitable for notification.NewTranslator. It
-// reads from the service each time so the payload reflects the ticket's state
-// at the moment the event is emitted.
-func ticketLookup(svc *appmm.Service) notification.TicketLookup {
-	return func(id mm.TicketID) (notification.TicketDetail, bool) {
-		t, err := svc.GetTicket(id)
-		if err != nil {
-			return notification.TicketDetail{}, false
-		}
-		players := make([]notification.PlayerDetail, 0, len(t.Players()))
-		for _, p := range t.Players() {
-			players = append(players, notification.PlayerDetail{
-				PlayerID: string(p.ID),
-				Team:     t.PlayerTeam(mm.PlayerID(p.ID)),
-			})
-		}
-		return notification.TicketDetail{
-			TicketID:  string(t.ID()),
-			StartTime: t.StartTime().UTC().Format(notification.ISO8601Millis),
-			Players:   players,
-		}, true
-	}
 }

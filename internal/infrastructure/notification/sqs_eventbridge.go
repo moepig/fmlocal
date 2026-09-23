@@ -28,7 +28,7 @@ func NewSQSEventBridgePublisher(queueURL string, translator *Translator, client 
 }
 
 func (p *SQSEventBridgePublisher) Publish(ctx context.Context, e mm.Event) error {
-	body, err := p.Translator.Marshal(e)
+	body, err := p.Translator.MarshalContext(ctx, e)
 	if err != nil {
 		return err
 	}

@@ -17,9 +17,16 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 	// ConfigurationName is fixed at construction, so reading it before taking the
 	// lock is race-free; everything that mutates the ticket runs under the lock.
 	name := ticket.ConfigurationName()
+	lane, err := s.reserveDelivery(ctx, name)
+	if err != nil {
+		return err
+	}
 	unlock := s.lockConfiguration(name)
-	batch := newEventBatch(name)
+	batch := newEventBatch(s, name, lane)
 	defer s.releaseAndFlush(ctx, unlock, batch)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	current, err := s.GetTicket(cmd.TicketID)
 	if err != nil || current != ticket {
 		return mm.ErrTicketNotFound

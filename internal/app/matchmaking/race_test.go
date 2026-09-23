@@ -34,13 +34,15 @@ import (
 type blockingPublisher struct {
 	mu      sync.Mutex
 	n       int
+	names   []string
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (b *blockingPublisher) Publish(_ context.Context, _ mm.Event) error {
+func (b *blockingPublisher) Publish(_ context.Context, e mm.Event) error {
 	b.mu.Lock()
 	b.n++
+	b.names = append(b.names, e.EventName())
 	first := b.n == 1
 	b.mu.Unlock()
 	if first {
@@ -48,6 +50,46 @@ func (b *blockingPublisher) Publish(_ context.Context, _ mm.Event) error {
 		<-b.release
 	}
 	return nil
+}
+
+func (b *blockingPublisher) Names() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.names...)
+}
+
+func TestPublish_PreservesTicketOrder(t *testing.T) {
+	blocking := &blockingPublisher{entered: make(chan struct{}), release: make(chan struct{})}
+	h := setupWithPublisher(t, skillRS, false, blocking)
+	ctx := context.Background()
+	started := make(chan error, 1)
+	go func() {
+		_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: "c1", TicketID: "t1", Players: []flexi.Player{{ID: "p1"}},
+		})
+		started <- err
+	}()
+	<-blocking.entered
+	require.NoError(t, h.svc.StopMatchmaking(ctx, appmm.StopMatchmakingCommand{TicketID: "t1"}))
+	ticked := make(chan error, 1)
+	go func() { ticked <- h.svc.Tick(ctx, "c1") }()
+	deadline := time.After(2 * time.Second)
+	for {
+		ticket, err := h.svc.GetTicket("t1")
+		if err == nil && ticket.Status() == mm.StatusCancelled {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("cancellation did not update state")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	require.Equal(t, []string{"MatchmakingSearching"}, blocking.Names())
+	close(blocking.release)
+	require.NoError(t, <-started)
+	require.NoError(t, <-ticked)
+	require.Equal(t, []string{"MatchmakingSearching", "MatchmakingCancelled"}, blocking.Names())
 }
 
 // TestPublish_NotHeldUnderCommandLock verifies event publishing runs only after
@@ -80,13 +122,19 @@ func TestPublish_NotHeldUnderCommandLock(t *testing.T) {
 		done <- err
 	}()
 
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("second command blocked while a publish was in flight: publishing is holding the command lock")
+	deadline := time.After(2 * time.Second)
+	for {
+		if _, err := h.svc.GetTicket("t2"); err == nil {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("second command did not update state while a publish was in flight")
+		case <-time.After(time.Millisecond):
+		}
 	}
 	close(blocking.release)
+	require.NoError(t, <-done)
 }
 
 // proposeTwoTickets starts t1/t2 and ticks once so both sit in

@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
-	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 	"github.com/moepig/fmlocal/internal/app/defaults/idgen"
+	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
 	"github.com/moepig/fmlocal/internal/infrastructure/notification"
 	"github.com/moepig/fmlocal/internal/infrastructure/notification/mocks"
 	"github.com/stretchr/testify/assert"

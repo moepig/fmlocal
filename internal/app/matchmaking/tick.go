@@ -109,9 +109,16 @@ func (s *Service) tracker(name mm.ConfigurationName) *proposalTracker {
 }
 
 func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
+	lane, err := s.reserveDelivery(ctx, name)
+	if err != nil {
+		return err
+	}
 	unlock := s.lockConfiguration(name)
-	batch := newEventBatch(name)
+	batch := newEventBatch(s, name, lane)
 	defer s.releaseAndFlush(ctx, unlock, batch)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	cfg, err := s.GetConfiguration(name)
 	if err != nil {
 		return err

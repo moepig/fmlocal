@@ -54,7 +54,7 @@ func NewSNSHTTPPublisher(url string, translator *Translator, ids ports.IDGenerat
 }
 
 func (p *SNSHTTPPublisher) Publish(ctx context.Context, e mm.Event) error {
-	envelope, err := p.Translator.Marshal(e)
+	envelope, err := p.Translator.MarshalContext(ctx, e)
 	if err != nil {
 		return err
 	}
