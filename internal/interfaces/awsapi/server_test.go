@@ -26,7 +26,7 @@ import (
 const testRuleSet = `{
   "name": "1v1",
   "ruleLanguageVersion": "1.0",
-  "playerAttributes": [{"name": "skill", "type": "number"}],
+  "playerAttributes": [{"name": "skill", "type": "number", "default": 50}],
   "teams": [
     {"name": "red",  "minPlayers": 1, "maxPlayers": 1},
     {"name": "blue", "minPlayers": 1, "maxPlayers": 1}
@@ -44,7 +44,7 @@ type harness struct {
 const bigTeamRuleSet = `{
   "name": "1v1",
   "ruleLanguageVersion": "1.0",
-  "playerAttributes": [{"name": "skill", "type": "number"}],
+  "playerAttributes": [{"name": "skill", "type": "number", "default": 50}],
   "teams": [
     {"name": "red",  "minPlayers": 1, "maxPlayers": 100},
     {"name": "blue", "minPlayers": 1, "maxPlayers": 100}
@@ -120,6 +120,33 @@ func TestStartMatchmaking_AllocatesTicketID(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &out))
 	assert.Equal(t, "ticket-1", out.MatchmakingTicket.TicketID)
 	assert.Equal(t, "QUEUED", out.MatchmakingTicket.Status)
+}
+
+func TestStartMatchmaking_ConfigurationARN(t *testing.T) {
+	h := setup(t)
+	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
+	  "ConfigurationName": "arn:aws:gamelift:us-east-1:000000000000:matchmakingconfiguration/c1",
+	  "Players": [{"PlayerId": "p1"}]
+	}`)
+	require.Equal(t, 200, code, string(body))
+	var out awsapi.StartMatchmakingOutput
+	require.NoError(t, json.Unmarshal(body, &out))
+	assert.Equal(t, "c1", out.MatchmakingTicket.ConfigurationName)
+	assert.Len(t, h.svc.TicketsByConfiguration("c1"), 1)
+}
+
+func TestStartMatchmaking_MissingRequiredAttribute(t *testing.T) {
+	h := setupWithRuleSet(t, strings.Replace(testRuleSet, `"type": "number", "default": 50`, `"type": "number"`, 1))
+	code, body := call(t, h.httpSrv, "StartMatchmaking", `{
+	  "ConfigurationName": "c1",
+	  "Players": [
+	    {"PlayerId": "p1", "PlayerAttributes": {"skill": {"N": 50}}},
+	    {"PlayerId": "p2"}
+	  ]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
+	assert.Empty(t, h.svc.TicketsByConfiguration("c1"))
 }
 
 func TestStartMatchmaking_AttributeTypeMismatchIsInvalidRequest(t *testing.T) {
@@ -248,6 +275,30 @@ func TestStartMatchBackfill_QueuesTicketWithTeams(t *testing.T) {
 	// request is made, not only once a match forms.
 	require.Len(t, out.MatchmakingTicket.Players, 1)
 	assert.Equal(t, "red", out.MatchmakingTicket.Players[0].Team)
+}
+
+func TestStartMatchBackfill_ConfigurationARN(t *testing.T) {
+	h := setup(t)
+	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+	  "ConfigurationName": "arn:aws:gamelift:us-east-1:000000000000:matchmakingconfiguration/c1",
+	  "Players": [{"PlayerId": "p1", "Team": "red"}]
+	}`)
+	require.Equal(t, 200, code, string(body))
+	var out awsapi.StartMatchBackfillOutput
+	require.NoError(t, json.Unmarshal(body, &out))
+	assert.Equal(t, "c1", out.MatchmakingTicket.ConfigurationName)
+	assert.Len(t, h.svc.TicketsByConfiguration("c1"), 1)
+}
+
+func TestStartMatchBackfill_MissingRequiredAttribute(t *testing.T) {
+	h := setupWithRuleSet(t, strings.Replace(testRuleSet, `"type": "number", "default": 50`, `"type": "number"`, 1))
+	code, body := call(t, h.httpSrv, "StartMatchBackfill", `{
+	  "ConfigurationName": "c1",
+	  "Players": [{"PlayerId": "p1", "Team": "red"}]
+	}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, string(body), "InvalidRequestException")
+	assert.Empty(t, h.svc.TicketsByConfiguration("c1"))
 }
 
 func TestStartMatchBackfill_RequiresTeamOnEveryPlayer(t *testing.T) {
@@ -469,6 +520,10 @@ func TestAcceptMatch_Success(t *testing.T) {
 	h.svc.LoadConfigurations([]mm.Configuration{
 		{Name: "c1", ARN: "arn:...", RuleSetName: "1v1", FlexMatchMode: mm.FlexMatchModeStandalone, RequestTimeout: 60 * time.Second},
 		cfg2,
+	})
+	h.svc.LoadRuleSets([]mm.RuleSet{
+		{Name: "1v1", Body: []byte(testRuleSet)},
+		{Name: "1v1-accept", Body: []byte(acceptRS)},
 	})
 
 	for _, id := range []string{"ta", "tb"} {

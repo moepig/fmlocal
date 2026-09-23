@@ -19,7 +19,7 @@ import (
 const skillRS = `{
   "name": "1v1",
   "ruleLanguageVersion": "1.0",
-  "playerAttributes": [{"name": "skill", "type": "number"}],
+  "playerAttributes": [{"name": "skill", "type": "number", "default": 50}],
   "teams": [
     {"name": "red",  "minPlayers": 1, "maxPlayers": 1},
     {"name": "blue", "minPlayers": 1, "maxPlayers": 1}
@@ -29,7 +29,7 @@ const skillRS = `{
 const skillRSAccept = `{
   "name": "1v1-accept",
   "ruleLanguageVersion": "1.0",
-  "playerAttributes": [{"name": "skill", "type": "number"}],
+  "playerAttributes": [{"name": "skill", "type": "number", "default": 50}],
   "teams": [
     {"name": "red",  "minPlayers": 1, "maxPlayers": 1},
     {"name": "blue", "minPlayers": 1, "maxPlayers": 1}

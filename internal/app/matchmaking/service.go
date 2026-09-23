@@ -157,16 +157,20 @@ func (s *Service) ActiveTicketCountByConfiguration(name mm.ConfigurationName) in
 	return len(s.activeTicketIDsByConfig[name])
 }
 
-// GetConfiguration returns the configuration by name, or
-// mm.ErrConfigurationNotFound.
+// GetConfiguration resolves a configuration by its name or exact ARN.
 func (s *Service) GetConfiguration(name mm.ConfigurationName) (mm.Configuration, error) {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
 	c, ok := s.configurations[name]
-	if !ok {
-		return mm.Configuration{}, mm.ErrConfigurationNotFound
+	if ok {
+		return c, nil
 	}
-	return c, nil
+	for _, candidate := range s.configurations {
+		if candidate.ARN != "" && candidate.ARN == string(name) {
+			return candidate, nil
+		}
+	}
+	return mm.Configuration{}, mm.ErrConfigurationNotFound
 }
 
 // ListConfigurations returns all configurations, sorted by name.

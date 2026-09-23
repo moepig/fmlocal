@@ -7,7 +7,5 @@
   "teams": [
     {"name": "red",  "minPlayers": 1, "maxPlayers": 1},
     {"name": "blue", "minPlayers": 1, "maxPlayers": 1}
-  ],
-  "acceptanceRequired": true,
-  "acceptanceTimeoutSeconds": 30
+  ]
 }
