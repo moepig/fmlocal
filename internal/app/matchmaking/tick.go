@@ -14,13 +14,14 @@ import (
 )
 
 type proposalTracker struct {
-	mu       sync.Mutex
-	matchIDs map[string]mm.MatchID
-	byMatch  map[mm.MatchID][]mm.TicketID
+	mu        sync.Mutex
+	matchIDs  map[string]mm.MatchID
+	byMatch   map[mm.MatchID][]mm.TicketID
+	createdAt map[mm.MatchID]time.Time
 }
 
 func newProposalTracker() *proposalTracker {
-	return &proposalTracker{matchIDs: map[string]mm.MatchID{}, byMatch: map[mm.MatchID][]mm.TicketID{}}
+	return &proposalTracker{matchIDs: map[string]mm.MatchID{}, byMatch: map[mm.MatchID][]mm.TicketID{}, createdAt: map[mm.MatchID]time.Time{}}
 }
 
 func proposalKey(ids []mm.TicketID) string {
@@ -40,10 +41,32 @@ func (pt *proposalTracker) known(ids []mm.TicketID) (mm.MatchID, bool) {
 }
 
 func (pt *proposalTracker) assign(ids []mm.TicketID, id mm.MatchID) {
+	pt.assignAt(ids, id, time.Time{})
+}
+
+func (pt *proposalTracker) assignAt(ids []mm.TicketID, id mm.MatchID, createdAt time.Time) {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 	pt.matchIDs[proposalKey(ids)] = id
 	pt.byMatch[id] = slices.Clone(ids)
+	pt.createdAt[id] = createdAt
+}
+
+func (pt *proposalTracker) proposals() map[mm.MatchID]trackedProposal {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	out := make(map[mm.MatchID]trackedProposal, len(pt.byMatch))
+	for id, ids := range pt.byMatch {
+		if !pt.createdAt[id].IsZero() {
+			out[id] = trackedProposal{ids: slices.Clone(ids), createdAt: pt.createdAt[id]}
+		}
+	}
+	return out
+}
+
+type trackedProposal struct {
+	ids       []mm.TicketID
+	createdAt time.Time
 }
 
 // ticketsFor returns the full ticket roster recorded for a match, or nil if the
@@ -68,6 +91,7 @@ func (pt *proposalTracker) forget(id mm.MatchID) {
 	}
 	delete(pt.matchIDs, proposalKey(ids))
 	delete(pt.byMatch, id)
+	delete(pt.createdAt, id)
 }
 
 func (s *Service) tracker(name mm.ConfigurationName) *proposalTracker {
@@ -98,16 +122,18 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 	}
 	now := s.Clock.Now()
 
-	before := engine.PendingAcceptances()
 	matches, err := engine.Tick()
 	if err != nil {
 		return fmt.Errorf("matchmaking: tick: %w", err)
 	}
 	after := engine.PendingAcceptances()
-	if err := s.applyNewProposals(cfg, before, after, now, batch); err != nil {
+	if err := s.settleOldProposals(cfg, engine, matches, after, now, batch); err != nil {
 		return err
 	}
 	if err := s.finalizeMatches(cfg, engine, matches, now, batch); err != nil {
+		return err
+	}
+	if err := s.applyNewProposals(cfg, after, now, batch); err != nil {
 		return err
 	}
 	if err := s.syncActiveTickets(cfg, engine, now, batch); err != nil {
@@ -150,28 +176,79 @@ func captureRuleMetrics(engine *flexi.Matchmaker, ticket *mm.Ticket) {
 	}
 }
 
-func (s *Service) applyNewProposals(cfg mm.Configuration, before, after []flexi.Proposal, now time.Time, batch *eventBatch) error {
-	name := cfg.Name
-	tracker := s.tracker(name)
-	seen := map[string]bool{}
-	for _, p := range before {
-		seen[proposalKey(mm.ToTyped[mm.TicketID](p.TicketIDs))] = true
-	}
-	for _, p := range after {
-		tids := mm.ToTyped[mm.TicketID](p.TicketIDs)
-		key := proposalKey(tids)
-		if seen[key] {
+func (s *Service) settleOldProposals(cfg mm.Configuration, engine *flexi.Matchmaker, matches []flexi.Match, after []flexi.Proposal, now time.Time, batch *eventBatch) error {
+	tracker := s.tracker(cfg.Name)
+	for matchID, old := range tracker.proposals() {
+		stillPending := false
+		for _, proposal := range after {
+			if proposalKey(mm.ToTyped[mm.TicketID](proposal.TicketIDs)) == proposalKey(old.ids) && proposal.CreatedAt.Equal(old.createdAt) {
+				stillPending = true
+				break
+			}
+		}
+		if stillPending {
 			continue
 		}
-		matchID, ok := tracker.known(tids)
-		if !ok {
-			matchID = mm.MatchID(s.MatchIDs.NewID())
-			tracker.assign(tids, matchID)
+		matched := false
+		for _, match := range matches {
+			if proposalKey(mm.ToTyped[mm.TicketID](match.TicketIDs)) == proposalKey(old.ids) {
+				matched = true
+				break
+			}
 		}
+		if matched {
+			continue
+		}
+		outcome := s.acceptanceFailureOutcome(cfg.Name, matchID)
+		cancelledByAPI := false
+		for _, id := range old.ids {
+			if ticket, err := s.GetTicket(id); err == nil && ticket.CancelRequestedByAPI() {
+				cancelledByAPI = true
+			}
+		}
+		if !cancelledByAPI {
+			batch.add(mm.NewAcceptMatchCompleted(cfg.Name, matchID, old.ids, outcome, now))
+		}
+		for _, id := range old.ids {
+			ticket, err := s.GetTicket(id)
+			if err != nil || ticket.Status() != mm.StatusRequiresAcceptance {
+				continue
+			}
+			status, err := engine.Status(string(id))
+			if err != nil {
+				continue
+			}
+			if status == flexi.StatusCancelled || status == flexi.StatusTimedOut {
+				captureRuleMetrics(engine, ticket)
+			}
+			if status == flexi.StatusRequiresAcceptance {
+				if err := ticket.ReturnToSearching("ACCEPTANCE_FAILED", now); err != nil {
+					return err
+				}
+			} else if _, err := s.transitionFromEngine(cfg, engine, ticket, mm.TicketStatus(status), now); err != nil {
+				return err
+			}
+			batch.addTicket(ticket)
+		}
+		tracker.forget(matchID)
+	}
+	return nil
+}
+
+func (s *Service) applyNewProposals(cfg mm.Configuration, after []flexi.Proposal, now time.Time, batch *eventBatch) error {
+	name := cfg.Name
+	tracker := s.tracker(name)
+	for _, p := range after {
+		tids := mm.ToTyped[mm.TicketID](p.TicketIDs)
+		if existing, ok := tracker.known(tids); ok && tracker.createdAt[existing].Equal(p.CreatedAt) {
+			continue
+		}
+		matchID := mm.MatchID(s.MatchIDs.NewID())
+		tracker.assignAt(tids, matchID, p.CreatedAt)
 		teams := playerTeams(p.Teams)
 		for _, tid := range tids {
 			ticket, err := s.GetTicket(tid)
-			if err != nil || ticket.Status() == mm.StatusRequiresAcceptance {
+			if err != nil {
 				continue
 			}
 			if err := ticket.AssignToProposal(matchID, now); err != nil {

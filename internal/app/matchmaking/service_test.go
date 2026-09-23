@@ -308,6 +308,34 @@ func TestService_RejectReQueuesAcceptingTicket(t *testing.T) {
 	assert.NotContains(t, names, "MatchmakingFailed")
 }
 
+func TestService_ImmediateRematchClearsOldProposal(t *testing.T) {
+	h := setup(t, skillRSAccept, true)
+	ctx := context.Background()
+	for _, id := range []mm.TicketID{"t1", "t2"} {
+		_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: "c1", TicketID: id, Players: []flexi.Player{{ID: string(id)}},
+		})
+		require.NoError(t, err)
+	}
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	t1, err := h.svc.GetTicket("t1")
+	require.NoError(t, err)
+	oldMatch := t1.MatchID()
+	require.NoError(t, h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{TicketID: "t1", PlayerIDs: []mm.PlayerID{"t1"}, Accepted: true}))
+	require.NoError(t, h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{TicketID: "t2", PlayerIDs: []mm.PlayerID{"t2"}, Accepted: false}))
+	_, err = h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1", TicketID: "t3", Players: []flexi.Player{{ID: "t3"}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	t3, err := h.svc.GetTicket("t3")
+	require.NoError(t, err)
+	assert.NotEqual(t, oldMatch, t1.MatchID())
+	assert.Equal(t, t1.MatchID(), t3.MatchID())
+	assert.Empty(t, t1.PlayerAcceptances())
+	assert.Equal(t, mm.StatusRequiresAcceptance, t1.Status())
+}
+
 func TestService_AcceptanceTimeout(t *testing.T) {
 	h := setup(t, skillRSAccept, true)
 	ctx := context.Background()

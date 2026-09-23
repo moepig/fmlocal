@@ -406,6 +406,13 @@ func (t *Ticket) ReturnToSearching(reason string, now time.Time) error {
 	}
 	t.matchID = ""
 	t.playerAcceptances = nil
+	t.playerTeams = nil
+	if t.isBackfill {
+		t.playerTeams = make(map[string]string, len(t.players))
+		for _, player := range t.players {
+			t.playerTeams[player.ID] = player.Team
+		}
+	}
 	t.statusReason = reason
 	t.statusMessage = ""
 	t.recordEvent(EventTicketSearchingStarted{
