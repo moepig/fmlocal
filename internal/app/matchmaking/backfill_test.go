@@ -134,6 +134,22 @@ func TestService_BackfillWithoutGameSessionCoexists(t *testing.T) {
 	assert.Equal(t, mm.StatusQueued, second.Status())
 }
 
+func TestService_BackfillRejectsExistingTicketID(t *testing.T) {
+	h := setup(t, backfillRS, false)
+	ctx := context.Background()
+	_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1", TicketID: "shared", Players: []flexi.Player{{ID: "p4"}},
+	})
+	require.NoError(t, err)
+	_, err = h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "shared", Players: seated(),
+	})
+	require.ErrorIs(t, err, mm.ErrTicketAlreadyExists)
+	ticket, err := h.svc.GetTicket("shared")
+	require.NoError(t, err)
+	assert.False(t, ticket.IsBackfill())
+}
+
 func TestService_BackfillRefusedWhilePreviousAwaitsAcceptance(t *testing.T) {
 	h := setup(t, backfillRS, true)
 	ctx := context.Background()
