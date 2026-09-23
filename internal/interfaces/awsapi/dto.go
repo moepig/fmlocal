@@ -4,10 +4,10 @@ package awsapi
 // on the wire for the GameLift JSON 1.1 protocol.
 
 type AttributeValue struct {
-	S   *string            `json:"S,omitempty"`
-	N   *float64           `json:"N,omitempty"`
-	SL  []string           `json:"SL,omitempty"`
-	SDM map[string]float64 `json:"SDM,omitempty"`
+	S   *string             `json:"S,omitempty"`
+	N   *float64            `json:"N,omitempty"`
+	SL  *[]string           `json:"SL,omitempty"`
+	SDM *map[string]float64 `json:"SDM,omitempty"`
 }
 
 type Player struct {

@@ -36,10 +36,10 @@ func attributesFromDTO(in map[string]AttributeValue) flexi.Attributes {
 			out[k] = flexi.String(*v.S)
 		case v.N != nil:
 			out[k] = flexi.Number(*v.N)
-		case len(v.SL) > 0:
-			out[k] = flexi.StringList(v.SL...)
-		case len(v.SDM) > 0:
-			out[k] = flexi.StringNumberMap(v.SDM)
+		case v.SL != nil:
+			out[k] = flexi.StringList((*v.SL)...)
+		case v.SDM != nil:
+			out[k] = flexi.StringNumberMap(*v.SDM)
 		}
 	}
 	return out
@@ -69,9 +69,17 @@ func attributesToDTO(in flexi.Attributes) map[string]AttributeValue {
 		case flexi.AttrNumber:
 			out[k] = AttributeValue{N: &v.N}
 		case flexi.AttrStringList:
-			out[k] = AttributeValue{SL: slices.Clone(v.SL)}
+			list := slices.Clone(v.SL)
+			if list == nil {
+				list = []string{}
+			}
+			out[k] = AttributeValue{SL: &list}
 		case flexi.AttrStringNumberMap:
-			out[k] = AttributeValue{SDM: maps.Clone(v.SDM)}
+			values := maps.Clone(v.SDM)
+			if values == nil {
+				values = map[string]float64{}
+			}
+			out[k] = AttributeValue{SDM: &values}
 		}
 	}
 	return out

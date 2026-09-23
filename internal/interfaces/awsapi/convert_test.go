@@ -1,6 +1,7 @@
 package awsapi
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -10,9 +11,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEmptyCollectionAttributesRoundTrip(t *testing.T) {
+	for _, input := range []string{
+		`{"SL":[]}`,
+		`{"SDM":{}}`,
+		`{"SL":null}`,
+	} {
+		var value AttributeValue
+		require.NoError(t, json.Unmarshal([]byte(input), &value))
+		attrs := attributesFromDTO(map[string]AttributeValue{"attr": value})
+		if input == `{"SL":null}` {
+			assert.NotContains(t, attrs, "attr")
+			continue
+		}
+		result := attributesToDTO(attrs)["attr"]
+		encoded, err := json.Marshal(result)
+		require.NoError(t, err)
+		assert.JSONEq(t, input, string(encoded))
+		cbor, err := encodeCBOR(result)
+		require.NoError(t, err)
+		decoded, err := cborBodyToJSON(cbor)
+		require.NoError(t, err)
+		assert.JSONEq(t, input, string(decoded))
+	}
+}
+
 func TestPlayersFromDTO_AllAttributeKinds(t *testing.T) {
 	n := 42.0
 	s := "hello"
+	list := []string{"a", "b"}
+	values := map[string]float64{"x": 1.0}
 	in := []Player{
 		{
 			PlayerID:    "p1",
@@ -20,8 +48,8 @@ func TestPlayersFromDTO_AllAttributeKinds(t *testing.T) {
 			PlayerAttributes: map[string]AttributeValue{
 				"num":  {N: &n},
 				"str":  {S: &s},
-				"list": {SL: []string{"a", "b"}},
-				"map":  {SDM: map[string]float64{"x": 1.0}},
+				"list": {SL: &list},
+				"map":  {SDM: &values},
 			},
 		},
 	}
@@ -52,8 +80,8 @@ func TestAttributesToDTO_AllKinds(t *testing.T) {
 	assert.InEpsilon(t, 3.14, *dtos["n"].N, 1e-9)
 	require.NotNil(t, dtos["s"].S)
 	assert.Equal(t, "hi", *dtos["s"].S)
-	assert.Equal(t, []string{"x", "y"}, dtos["sl"].SL)
-	assert.Equal(t, 9.0, dtos["sdm"].SDM["k"])
+	assert.Equal(t, []string{"x", "y"}, *dtos["sl"].SL)
+	assert.Equal(t, 9.0, (*dtos["sdm"].SDM)["k"])
 }
 
 func TestTicketToDTO_CompletedCarriesTeamAssignments(t *testing.T) {
@@ -84,16 +112,16 @@ func TestTicketToDTO_CompletedCarriesTeamAssignments(t *testing.T) {
 
 func TestConfigurationToDTO(t *testing.T) {
 	cfg := mm.Configuration{
-		Name:                     "c1",
-		ARN:                      "arn:aws:gamelift:us-east-1:000000000000:matchmakingconfiguration/c1",
-		RuleSetName:              "rs1",
-		RuleSetARN:               "arn:aws:gamelift:us-east-1:000000000000:matchmakingruleset/rs1",
-		RequestTimeout:           60e9, // 60s in nanoseconds
-		AcceptanceRequired:       true,
-		AcceptanceTimeout:        10e9,
-		BackfillMode:             mm.BackfillManual,
-		FlexMatchMode:            mm.FlexMatchModeStandalone,
-		NotificationTargetIDs:    []string{"sink1", "sink2"},
+		Name:                  "c1",
+		ARN:                   "arn:aws:gamelift:us-east-1:000000000000:matchmakingconfiguration/c1",
+		RuleSetName:           "rs1",
+		RuleSetARN:            "arn:aws:gamelift:us-east-1:000000000000:matchmakingruleset/rs1",
+		RequestTimeout:        60e9, // 60s in nanoseconds
+		AcceptanceRequired:    true,
+		AcceptanceTimeout:     10e9,
+		BackfillMode:          mm.BackfillManual,
+		FlexMatchMode:         mm.FlexMatchModeStandalone,
+		NotificationTargetIDs: []string{"sink1", "sink2"},
 	}
 	dto := configurationToDTO(cfg)
 	assert.Equal(t, "c1", dto.Name)
