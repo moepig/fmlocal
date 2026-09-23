@@ -161,16 +161,6 @@ func structToCBOR(rv reflect.Value) (smithycbor.Map, error) {
 		}
 		omitempty := strings.Contains(rest, "omitempty")
 
-		if fv.Kind() == reflect.Ptr {
-			if fv.IsNil() {
-				if !omitempty {
-					m[name] = (*smithycbor.Nil)(nil)
-				}
-				continue
-			}
-			fv = fv.Elem()
-		}
-
 		if omitempty && isZeroValue(fv) {
 			continue
 		}
