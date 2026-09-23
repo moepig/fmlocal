@@ -24,16 +24,20 @@ func (s *Service) StopMatchmaking(ctx context.Context, cmd StopMatchmakingComman
 	// a uniform command shape (lock, batch, releaseAndFlush) across use cases.
 	batch := newEventBatch(name)
 	defer s.releaseAndFlush(ctx, unlock, batch)
+	current, err := s.GetTicket(cmd.TicketID)
+	if err != nil || current != ticket {
+		return mm.ErrTicketNotFound
+	}
 	engine, err := s.Engines.EngineFor(name)
 	if err != nil {
 		return err
 	}
-	ticket.RequestCancel()
 	if err := engine.Cancel(string(ticket.ID())); err != nil {
 		if errors.Is(err, flexi.ErrUnknownTicket) {
 			return mm.ErrTicketNotFound
 		}
 		return fmt.Errorf("engine cancel: %w", err)
 	}
+	ticket.RequestCancel()
 	return s.SaveTicket(ticket)
 }

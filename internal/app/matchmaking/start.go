@@ -36,7 +36,11 @@ func (s *Service) StartMatchmaking(ctx context.Context, cmd StartMatchmakingComm
 	if err != nil {
 		return nil, err
 	}
+	if err := s.reserveTicketID(id); err != nil {
+		return nil, err
+	}
 	if err := engine.Enqueue(flexi.Ticket{ID: string(id), Players: cmd.Players}); err != nil {
+		s.cancelTicketReservation(id)
 		switch {
 		case errors.Is(err, flexi.ErrDuplicateTicket):
 			return nil, mm.ErrTicketAlreadyExists
@@ -48,9 +52,7 @@ func (s *Service) StartMatchmaking(ctx context.Context, cmd StartMatchmakingComm
 		}
 		return nil, fmt.Errorf("engine enqueue: %w", err)
 	}
-	if err := s.SaveTicket(ticket); err != nil {
-		return nil, err
-	}
+	s.commitTicket(ticket)
 	batch.addTicket(ticket)
 	return ticket, nil
 }

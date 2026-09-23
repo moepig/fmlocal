@@ -30,8 +30,9 @@ type Service struct {
 	// default (AWS keeps finished tickets for a few hours).
 	TicketRetention time.Duration
 
-	stateMu sync.RWMutex
-	tickets map[mm.TicketID]*mm.Ticket
+	stateMu           sync.RWMutex
+	tickets           map[mm.TicketID]*mm.Ticket
+	reservedTicketIDs map[mm.TicketID]struct{}
 	// ticketsByConfig indexes tickets per configuration so the per-tick scans
 	// (timeout enforcement, status sync) touch only that configuration's
 	// tickets instead of the whole map. Maintained by SaveTicket.
@@ -217,7 +218,7 @@ func (s *Service) evictExpiredTickets(name mm.ConfigurationName, engine *flexi.M
 	}
 }
 
-// SaveTicket is the single write-path for the ticket map.
+// SaveTicket registers a ticket or verifies that the same ticket is already registered.
 func (s *Service) SaveTicket(t *mm.Ticket) error {
 	if t == nil {
 		return fmt.Errorf("matchmaking: nil ticket")
@@ -226,6 +227,12 @@ func (s *Service) SaveTicket(t *mm.Ticket) error {
 	defer s.stateMu.Unlock()
 	if s.tickets == nil {
 		s.tickets = map[mm.TicketID]*mm.Ticket{}
+	}
+	if existing, ok := s.tickets[t.ID()]; ok && existing != t {
+		return mm.ErrTicketAlreadyExists
+	}
+	if _, ok := s.reservedTicketIDs[t.ID()]; ok && s.tickets[t.ID()] != t {
+		return mm.ErrTicketAlreadyExists
 	}
 	if s.ticketsByConfig == nil {
 		s.ticketsByConfig = map[mm.ConfigurationName]map[mm.TicketID]*mm.Ticket{}
@@ -238,6 +245,45 @@ func (s *Service) SaveTicket(t *mm.Ticket) error {
 	}
 	byConfig[t.ID()] = t
 	return nil
+}
+
+func (s *Service) reserveTicketID(id mm.TicketID) error {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.tickets[id] != nil {
+		return mm.ErrTicketAlreadyExists
+	}
+	if _, ok := s.reservedTicketIDs[id]; ok {
+		return mm.ErrTicketAlreadyExists
+	}
+	if s.reservedTicketIDs == nil {
+		s.reservedTicketIDs = map[mm.TicketID]struct{}{}
+	}
+	s.reservedTicketIDs[id] = struct{}{}
+	return nil
+}
+
+func (s *Service) cancelTicketReservation(id mm.TicketID) {
+	s.stateMu.Lock()
+	delete(s.reservedTicketIDs, id)
+	s.stateMu.Unlock()
+}
+
+func (s *Service) commitTicket(t *mm.Ticket) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.tickets == nil {
+		s.tickets = map[mm.TicketID]*mm.Ticket{}
+	}
+	if s.ticketsByConfig == nil {
+		s.ticketsByConfig = map[mm.ConfigurationName]map[mm.TicketID]*mm.Ticket{}
+	}
+	if s.ticketsByConfig[t.ConfigurationName()] == nil {
+		s.ticketsByConfig[t.ConfigurationName()] = map[mm.TicketID]*mm.Ticket{}
+	}
+	s.tickets[t.ID()] = t
+	s.ticketsByConfig[t.ConfigurationName()][t.ID()] = t
+	delete(s.reservedTicketIDs, t.ID())
 }
 
 func (s *Service) logger() *slog.Logger {

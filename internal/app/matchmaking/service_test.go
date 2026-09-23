@@ -123,6 +123,46 @@ func TestService_StartEmitsSearching(t *testing.T) {
 	assert.Equal(t, []string{"MatchmakingSearching"}, h.pub.Names())
 }
 
+func TestService_TicketIDUniqueAcrossConfigurations(t *testing.T) {
+	h := setup(t, skillRS, false)
+	cfg, err := h.svc.GetConfiguration("c1")
+	require.NoError(t, err)
+	cfg.Name = "c2"
+	rs, err := h.svc.GetRuleSet("rs1")
+	require.NoError(t, err)
+	engine, err := appmm.BuildEngine(cfg, rs, flexi.WithClock(h.clock))
+	require.NoError(t, err)
+	h.svc.Engines.(*appmm.StaticEngineResolver).Register(cfg.Name, engine)
+	original, err := h.svc.GetConfiguration("c1")
+	require.NoError(t, err)
+	h.svc.LoadConfigurations([]mm.Configuration{original, cfg})
+
+	ctx := context.Background()
+	start := func(name mm.ConfigurationName) error {
+		_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: name, TicketID: "shared", Players: []flexi.Player{{ID: "p1"}},
+		})
+		return err
+	}
+	results := make(chan error, 2)
+	for _, name := range []mm.ConfigurationName{"c1", "c2"} {
+		go func() { results <- start(name) }()
+	}
+	first, second := <-results, <-results
+	if (first == nil) == (second == nil) {
+		t.Fatalf("expected one success and one duplicate: %v, %v", first, second)
+	}
+	if first != nil {
+		require.ErrorIs(t, first, mm.ErrTicketAlreadyExists)
+	}
+	if second != nil {
+		require.ErrorIs(t, second, mm.ErrTicketAlreadyExists)
+	}
+	stored, err := h.svc.GetTicket("shared")
+	require.NoError(t, err)
+	require.Same(t, stored, h.svc.TicketsByConfiguration(stored.ConfigurationName())[0])
+}
+
 func TestService_TickCompletesMatch(t *testing.T) {
 	h := setup(t, skillRS, false)
 	ctx := context.Background()

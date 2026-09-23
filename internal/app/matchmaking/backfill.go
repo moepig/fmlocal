@@ -62,12 +62,16 @@ func (s *Service) StartMatchBackfill(ctx context.Context, cmd StartMatchBackfill
 	if err != nil {
 		return nil, err
 	}
+	if err := s.reserveTicketID(id); err != nil {
+		return nil, err
+	}
 	// Enqueue before retiring the superseded ticket: a roster the engine
 	// rejects must not have cost the caller the request it already had. No tick
 	// can observe the two coexisting, since both run under the configuration
 	// lock this command holds. GameSessionID is deliberately left empty — the
 	// supersession below is fmlocal's job, not the engine's.
 	if err := engine.EnqueueBackfill(flexi.Ticket{ID: string(id), Players: cmd.Players}); err != nil {
+		s.cancelTicketReservation(id)
 		switch {
 		case errors.Is(err, flexi.ErrDuplicateTicket):
 			return nil, mm.ErrTicketAlreadyExists
@@ -83,12 +87,17 @@ func (s *Service) StartMatchBackfill(ctx context.Context, cmd StartMatchBackfill
 	}
 	if superseded != nil {
 		if err := s.supersedeBackfill(engine, superseded, now, batch); err != nil {
+			if cancelErr := engine.Cancel(string(id)); cancelErr != nil && !errors.Is(cancelErr, flexi.ErrUnknownTicket) {
+				return nil, errors.Join(err, fmt.Errorf("engine cancel new backfill: %w", cancelErr))
+			}
+			if evictErr := engine.Evict(string(id)); evictErr != nil && !errors.Is(evictErr, flexi.ErrUnknownTicket) {
+				return nil, errors.Join(err, fmt.Errorf("engine evict new backfill: %w", evictErr))
+			}
+			s.cancelTicketReservation(id)
 			return nil, err
 		}
 	}
-	if err := s.SaveTicket(ticket); err != nil {
-		return nil, err
-	}
+	s.commitTicket(ticket)
 	batch.addTicket(ticket)
 	return ticket, nil
 }

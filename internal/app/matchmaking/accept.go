@@ -19,6 +19,10 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 	unlock := s.lockConfiguration(name)
 	batch := newEventBatch(name)
 	defer s.releaseAndFlush(ctx, unlock, batch)
+	current, err := s.GetTicket(cmd.TicketID)
+	if err != nil || current != ticket {
+		return mm.ErrTicketNotFound
+	}
 	engine, err := s.Engines.EngineFor(name)
 	if err != nil {
 		return err
