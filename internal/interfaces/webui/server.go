@@ -76,7 +76,12 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+		shutdownErr := srv.Shutdown(shutdownCtx)
+		if shutdownErr != nil {
+			_ = srv.Close()
+		}
+		<-errCh
+		return shutdownErr
 	case err := <-errCh:
 		return err
 	}

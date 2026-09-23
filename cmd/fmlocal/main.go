@@ -54,14 +54,16 @@ func main() {
 		os.Exit(1)
 	}
 	logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: loaded.LogLevel}))
-	if err := run(loaded, logger); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, loaded, logger); err != nil {
 		logger.Error("fmlocal exited", "err", err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cfg *configfile.Loaded, logger *slog.Logger) error {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+func run(parent context.Context, cfg *configfile.Loaded, logger *slog.Logger) error {
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	clk := sysclock.System{}
@@ -128,29 +130,21 @@ func run(cfg *configfile.Loaded, logger *slog.Logger) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logger.Info("starting AWS API server", "port", cfg.AWSAPIPort)
-		if err := apiSrv.Run(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("aws api: %w", err)
-		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logger.Info("starting Web UI server", "port", cfg.WebUIPort)
-		if err := uiSrv.Run(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("webui: %w", err)
-		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := ticker.Run(ctx, cfg.TickInterval); err != nil {
-			errCh <- fmt.Errorf("ticker: %w", err)
-		}
-	}()
+	start := func(name string, run func(context.Context) error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := run(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
+				errCh <- fmt.Errorf("%s: %w", name, err)
+				cancel()
+			}
+		}()
+	}
+	logger.Info("starting AWS API server", "port", cfg.AWSAPIPort)
+	start("aws api", apiSrv.Run)
+	logger.Info("starting Web UI server", "port", cfg.WebUIPort)
+	start("webui", uiSrv.Run)
+	start("ticker", func(ctx context.Context) error { return ticker.Run(ctx, cfg.TickInterval) })
 
 	wg.Wait()
 	close(errCh)
