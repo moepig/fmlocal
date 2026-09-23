@@ -30,12 +30,12 @@ type Service struct {
 	// default (AWS keeps finished tickets for a few hours).
 	TicketRetention time.Duration
 
-	stateMu           sync.RWMutex
-	tickets           map[mm.TicketID]*mm.Ticket
-	reservedTicketIDs map[mm.TicketID]struct{}
-	// ticketsByConfig indexes tickets per configuration so the per-tick scans
-	// (timeout enforcement, status sync) touch only that configuration's
-	// tickets instead of the whole map. Maintained by SaveTicket.
+	stateMu                 sync.RWMutex
+	tickets                 map[mm.TicketID]*mm.Ticket
+	reservedTicketIDs       map[mm.TicketID]struct{}
+	activeTicketIDsByConfig map[mm.ConfigurationName]map[mm.TicketID]struct{}
+	nextCleanup             map[mm.ConfigurationName]time.Time
+	// Configuration index includes retained terminal tickets.
 	ticketsByConfig map[mm.ConfigurationName]map[mm.TicketID]*mm.Ticket
 	configurations  map[mm.ConfigurationName]mm.Configuration
 	ruleSets        map[mm.RuleSetName]mm.RuleSet
@@ -135,14 +135,18 @@ func (s *Service) TicketsByConfiguration(name mm.ConfigurationName) []*mm.Ticket
 func (s *Service) ActiveTicketIDsByConfiguration(name mm.ConfigurationName) []mm.TicketID {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
-	out := make([]mm.TicketID, 0)
-	for _, t := range s.ticketsByConfig[name] {
-		if t.Status().IsActive() {
-			out = append(out, t.ID())
-		}
+	out := make([]mm.TicketID, 0, len(s.activeTicketIDsByConfig[name]))
+	for id := range s.activeTicketIDsByConfig[name] {
+		out = append(out, id)
 	}
 	slices.Sort(out)
 	return out
+}
+
+func (s *Service) ActiveTicketCountByConfiguration(name mm.ConfigurationName) int {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return len(s.activeTicketIDsByConfig[name])
 }
 
 // GetConfiguration returns the configuration by name, or
@@ -195,26 +199,40 @@ func (s *Service) retention() time.Duration {
 	return defaultTicketRetention
 }
 
-// evictExpiredTickets drops terminal tickets whose retention window has
-// passed, bounding memory on a long-running server. The engine retains the
-// status and rule metrics of a spent ticket until it is evicted explicitly, so
-// its bookkeeping is released alongside the fmlocal-side entry. A ticket the
-// engine no longer tracks, or refuses to release, is still dropped here: the
-// retention window has expired either way.
+// Scans terminal tickets periodically and releases expired entries from the service and engine.
 func (s *Service) evictExpiredTickets(name mm.ConfigurationName, engine *flexi.Matchmaker, now time.Time) {
 	retention := s.retention()
+	interval := min(time.Minute, retention)
 	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
+	if now.Before(s.nextCleanup[name]) {
+		s.stateMu.Unlock()
+		return
+	}
+	if s.nextCleanup == nil {
+		s.nextCleanup = map[mm.ConfigurationName]time.Time{}
+	}
+	s.nextCleanup[name] = now.Add(interval)
+	var expired []mm.TicketID
 	for id, t := range s.ticketsByConfig[name] {
 		if !t.Status().IsTerminal() || t.EndTime().IsZero() || now.Sub(t.EndTime()) < retention {
 			continue
 		}
+		expired = append(expired, id)
+	}
+	s.stateMu.Unlock()
+	for _, id := range expired {
 		if err := engine.Evict(string(id)); err != nil && !errors.Is(err, flexi.ErrUnknownTicket) {
 			s.logger().Warn("engine evict failed",
 				"configuration", name, "ticket", id, "error", err.Error())
 		}
-		delete(s.ticketsByConfig[name], id)
-		delete(s.tickets, id)
+		s.stateMu.Lock()
+		t := s.ticketsByConfig[name][id]
+		if t != nil && t.Status().IsTerminal() && !t.EndTime().IsZero() && now.Sub(t.EndTime()) >= retention {
+			delete(s.ticketsByConfig[name], id)
+			delete(s.tickets, id)
+			delete(s.activeTicketIDsByConfig[name], id)
+		}
+		s.stateMu.Unlock()
 	}
 }
 
@@ -244,7 +262,22 @@ func (s *Service) SaveTicket(t *mm.Ticket) error {
 		s.ticketsByConfig[t.ConfigurationName()] = byConfig
 	}
 	byConfig[t.ID()] = t
+	s.syncTicketIndexLocked(t)
 	return nil
+}
+
+func (s *Service) syncTicketIndexLocked(t *mm.Ticket) {
+	if s.activeTicketIDsByConfig == nil {
+		s.activeTicketIDsByConfig = map[mm.ConfigurationName]map[mm.TicketID]struct{}{}
+	}
+	if s.activeTicketIDsByConfig[t.ConfigurationName()] == nil {
+		s.activeTicketIDsByConfig[t.ConfigurationName()] = map[mm.TicketID]struct{}{}
+	}
+	if t.Status().IsActive() {
+		s.activeTicketIDsByConfig[t.ConfigurationName()][t.ID()] = struct{}{}
+	} else {
+		delete(s.activeTicketIDsByConfig[t.ConfigurationName()], t.ID())
+	}
 }
 
 func (s *Service) reserveTicketID(id mm.TicketID) error {
@@ -283,6 +316,7 @@ func (s *Service) commitTicket(t *mm.Ticket) {
 	}
 	s.tickets[t.ID()] = t
 	s.ticketsByConfig[t.ConfigurationName()][t.ID()] = t
+	s.syncTicketIndexLocked(t)
 	delete(s.reservedTicketIDs, t.ID())
 }
 

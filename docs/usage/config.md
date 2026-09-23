@@ -60,7 +60,7 @@ Global server settings.
 | `region` | string | `us-east-1` | AWS region embedded in generated ARNs and event envelopes. |
 | `accountId` | string | `000000000000` | AWS account ID embedded in generated ARNs and event envelopes. |
 | `tickInterval` | duration | `1s` | How often the matchmaker advances. Accepts Go duration strings (`500ms`, `1s`, …). Lower values reduce match latency at the cost of more CPU. |
-| `ticketRetention` | duration | `3h` | How long a finished ticket (`COMPLETED`, `CANCELLED`, `TIMED_OUT`, `FAILED`) stays queryable through `DescribeMatchmaking` before it is dropped from memory. Accepts Go duration strings. |
+| `ticketRetention` | duration | `3h` | How long a finished ticket (`COMPLETED`, `CANCELLED`, `TIMED_OUT`, `FAILED`) stays queryable through `DescribeMatchmaking` before it is dropped from memory. Expired tickets are removed on the next cleanup tick; cleanup runs at intervals of up to one minute or the retention period, whichever is shorter. Accepts Go duration strings. |
 | `logLevel` | string | `info` | Log verbosity. One of `debug`, `info`, `warn`, `error`. See [Logging](logging.md). |
 
 ## `matchmakingConfigurations`

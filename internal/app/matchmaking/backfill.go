@@ -132,13 +132,13 @@ func (s *Service) supersedeBackfill(engine *flexi.Matchmaker, prev *mm.Ticket, n
 // findSessionBackfill returns the configuration's active backfill ticket for
 // gameSessionARN, or nil when the session has none.
 //
-// The lookup scans the configuration's tickets rather than consulting a
-// gameSessionARN index. It runs once per StartMatchBackfill over the same map
-// every tick already walks, and an index would have to be swept on each of the
-// several paths a ticket leaves the pool by — match, timeout, cancellation,
-// acceptance failure — where a missed sweep would resurrect a dead ticket.
+// The lookup scans active ticket IDs and verifies each ticket's session.
 func (s *Service) findSessionBackfill(name mm.ConfigurationName, gameSessionARN string) *mm.Ticket {
-	for _, t := range s.TicketsByConfiguration(name) {
+	for _, id := range s.ActiveTicketIDsByConfiguration(name) {
+		t, err := s.GetTicket(id)
+		if err != nil {
+			continue
+		}
 		if t.IsBackfill() && t.GameSessionARN() == gameSessionARN && t.Status().IsActive() {
 			return t
 		}

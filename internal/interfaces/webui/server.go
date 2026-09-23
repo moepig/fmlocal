@@ -122,11 +122,11 @@ func (s *Server) handlePools(w http.ResponseWriter, _ *http.Request) {
 	configs := s.Service.ListConfigurations()
 	rows := make([]poolRow, 0, len(configs))
 	for _, c := range configs {
-		active := s.Service.ActiveTicketIDsByConfiguration(c.Name)
+		active := s.Service.ActiveTicketCountByConfiguration(c.Name)
 		rows = append(rows, poolRow{
 			Name:        string(c.Name),
 			RuleSetName: string(c.RuleSetName),
-			Active:      len(active),
+			Active:      active,
 		})
 	}
 	_ = poolsTmpl.Execute(w, map[string]any{"Pools": rows})

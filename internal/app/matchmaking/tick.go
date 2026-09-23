@@ -228,6 +228,9 @@ func (s *Service) settleOldProposals(cfg mm.Configuration, engine *flexi.Matchma
 			} else if _, err := s.transitionFromEngine(cfg, engine, ticket, mm.TicketStatus(status), now); err != nil {
 				return err
 			}
+			if err := s.SaveTicket(ticket); err != nil {
+				return err
+			}
 			batch.addTicket(ticket)
 		}
 		tracker.forget(matchID)
