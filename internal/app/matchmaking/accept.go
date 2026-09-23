@@ -24,9 +24,6 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 		return err
 	}
 	for _, pid := range cmd.PlayerIDs {
-		if err := ticket.RecordPlayerAcceptance(pid, cmd.Accepted, s.Clock.Now()); err != nil {
-			return err
-		}
 		var engineErr error
 		if cmd.Accepted {
 			engineErr = engine.Accept(string(ticket.ID()), string(pid))
@@ -44,6 +41,9 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 			default:
 				return engineErr
 			}
+		}
+		if err := ticket.RecordPlayerAcceptance(pid, cmd.Accepted, s.Clock.Now()); err != nil {
+			return err
 		}
 	}
 	if err := s.SaveTicket(ticket); err != nil {

@@ -267,6 +267,29 @@ func TestService_AcceptanceTimeout(t *testing.T) {
 	assert.NotContains(t, h.pub.Names(), "MatchmakingTimedOut")
 }
 
+func TestService_AcceptMatchAfterDeadlineDoesNotRecordDecision(t *testing.T) {
+	h := setup(t, skillRSAccept, true)
+	ctx := context.Background()
+	for _, id := range []mm.TicketID{"t1", "t2"} {
+		_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: "c1",
+			TicketID:          id,
+			Players:           []flexi.Player{{ID: string(id)}},
+		})
+		require.NoError(t, err)
+	}
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	h.clock.Advance(10 * time.Second)
+	err := h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: "t1", PlayerIDs: []mm.PlayerID{"t1"}, Accepted: true,
+	})
+	assert.ErrorIs(t, err, mm.ErrProposalNotFound)
+	ticket, err := h.svc.GetTicket("t1")
+	require.NoError(t, err)
+	assert.Empty(t, ticket.PlayerAcceptances())
+	assert.NotContains(t, h.pub.Names(), "AcceptMatch")
+}
+
 func TestService_StopMatchmaking(t *testing.T) {
 	h := setup(t, skillRS, false)
 	ctx := context.Background()
