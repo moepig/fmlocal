@@ -236,6 +236,34 @@ func (t *Ticket) RecordPlayerAcceptance(playerID PlayerID, accepted bool, now ti
 	return nil
 }
 
+func (t *Ticket) ValidatePlayerAcceptances(ids []PlayerID) error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.status != StatusRequiresAcceptance {
+		return fmt.Errorf("%w: ticket %s is not in REQUIRES_ACCEPTANCE", ErrInvalidTransition, t.id)
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("%w: player ids required", ErrInvalidRequest)
+	}
+	for _, id := range ids {
+		if !t.hasPlayer(id) {
+			return fmt.Errorf("%w: %s", ErrPlayerNotInTicket, id)
+		}
+	}
+	return nil
+}
+
+func (t *Ticket) RecordPlayerAcceptances(ids []PlayerID, accepted bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.playerAcceptances == nil {
+		t.playerAcceptances = map[string]bool{}
+	}
+	for _, id := range ids {
+		t.playerAcceptances[string(id)] = accepted
+	}
+}
+
 // PlayerAcceptances returns the per-player acceptance decisions recorded so far
 // (playerID -> accepted). A player absent from the map has not yet responded.
 func (t *Ticket) PlayerAcceptances() map[PlayerID]bool {

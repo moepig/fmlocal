@@ -3,6 +3,7 @@ package matchmaking
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/moepig/flexi"
 	mm "github.com/moepig/fmlocal/internal/domain/matchmaking"
@@ -27,7 +28,30 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 	if err != nil {
 		return err
 	}
+	playerIDs := make([]mm.PlayerID, 0, len(cmd.PlayerIDs))
 	for _, pid := range cmd.PlayerIDs {
+		if !slices.Contains(playerIDs, pid) {
+			playerIDs = append(playerIDs, pid)
+		}
+	}
+	if err := ticket.ValidatePlayerAcceptances(playerIDs); err != nil {
+		return err
+	}
+	pending := false
+	for _, proposal := range engine.PendingAcceptances() {
+		if slices.Contains(proposal.TicketIDs, string(ticket.ID())) {
+			pending = true
+			break
+		}
+	}
+	if !pending {
+		return mm.ErrProposalNotFound
+	}
+	engineIDs := playerIDs
+	if !cmd.Accepted {
+		engineIDs = playerIDs[:1]
+	}
+	for _, pid := range engineIDs {
 		var engineErr error
 		if cmd.Accepted {
 			engineErr = engine.Accept(string(ticket.ID()), string(pid))
@@ -46,10 +70,8 @@ func (s *Service) AcceptMatch(ctx context.Context, cmd AcceptMatchCommand) error
 				return engineErr
 			}
 		}
-		if err := ticket.RecordPlayerAcceptance(pid, cmd.Accepted, s.Clock.Now()); err != nil {
-			return err
-		}
 	}
+	ticket.RecordPlayerAcceptances(playerIDs, cmd.Accepted)
 	if err := s.SaveTicket(ticket); err != nil {
 		return err
 	}

@@ -213,6 +213,30 @@ func TestService_AcceptanceFlow(t *testing.T) {
 	assert.Contains(t, names, "MatchmakingSucceeded")
 }
 
+func TestService_AcceptMatchValidatesWholeRequest(t *testing.T) {
+	h := setup(t, skillRSAccept, true)
+	ctx := context.Background()
+	for _, id := range []mm.TicketID{"t1", "t2"} {
+		_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+			ConfigurationName: "c1", TicketID: id, Players: []flexi.Player{{ID: string(id)}},
+		})
+		require.NoError(t, err)
+	}
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	err := h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: "t1", PlayerIDs: []mm.PlayerID{"t1", "unknown"}, Accepted: true,
+	})
+	require.ErrorIs(t, err, mm.ErrPlayerNotInTicket)
+	t1, err := h.svc.GetTicket("t1")
+	require.NoError(t, err)
+	assert.Empty(t, t1.PlayerAcceptances())
+	require.NoError(t, h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: "t2", PlayerIDs: []mm.PlayerID{"t2"}, Accepted: true,
+	}))
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	assert.Equal(t, mm.StatusRequiresAcceptance, t1.Status())
+}
+
 func TestService_RejectFailsMatch(t *testing.T) {
 	h := setup(t, skillRSAccept, true)
 	ctx := context.Background()

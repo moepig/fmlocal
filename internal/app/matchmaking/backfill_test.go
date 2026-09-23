@@ -159,6 +159,27 @@ func TestService_BackfillRefusedWhilePreviousAwaitsAcceptance(t *testing.T) {
 	assert.ErrorIs(t, err, mm.ErrTicketNotFound)
 }
 
+func TestService_RejectMultiplePlayersOnce(t *testing.T) {
+	h := setup(t, backfillRS, true)
+	ctx := context.Background()
+	_, err := h.svc.StartMatchBackfill(ctx, appmm.StartMatchBackfillCommand{
+		ConfigurationName: "c1", TicketID: "bf1", Players: seated(),
+	})
+	require.NoError(t, err)
+	_, err = h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1", TicketID: "t1", Players: []flexi.Player{{ID: "p4"}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	require.NoError(t, h.svc.AcceptMatch(ctx, appmm.AcceptMatchCommand{
+		TicketID: "bf1", PlayerIDs: []mm.PlayerID{"p1", "p2", "p2"}, Accepted: false,
+	}))
+	bf, err := h.svc.GetTicket("bf1")
+	require.NoError(t, err)
+	assert.Equal(t, map[mm.PlayerID]bool{"p1": false, "p2": false}, bf.PlayerAcceptances())
+	assert.Equal(t, 1, countName(h.pub.Names(), "AcceptMatch"))
+}
+
 func TestService_BackfillWithUnknownTeamIsInvalidRequest(t *testing.T) {
 	h := setup(t, backfillRS, false)
 	_, err := h.svc.StartMatchBackfill(context.Background(), appmm.StartMatchBackfillCommand{
