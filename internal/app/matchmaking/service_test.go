@@ -371,10 +371,9 @@ func TestService_StopMatchmaking(t *testing.T) {
 }
 
 func TestService_RequestTimeout(t *testing.T) {
-	h := setup(t, skillRS, false)
-	h.svc.LoadConfigurations([]mm.Configuration{{
-		Name: "c1", FlexMatchMode: mm.FlexMatchModeStandalone, RequestTimeout: 5 * time.Second,
-	}})
+	h := setupBuilt(t, skillRS, mm.Configuration{
+		Name: "c1", RuleSetName: "rs1", FlexMatchMode: mm.FlexMatchModeStandalone, RequestTimeout: 5 * time.Second,
+	})
 	ctx := context.Background()
 	_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
 		ConfigurationName: "c1",
@@ -387,6 +386,23 @@ func TestService_RequestTimeout(t *testing.T) {
 	tk, _ := h.svc.GetTicket("solo")
 	assert.Equal(t, mm.StatusTimedOut, tk.Status())
 	assert.Contains(t, h.pub.Names(), "MatchmakingTimedOut")
+}
+
+func TestService_StopBeforeDeadlineStaysCancelled(t *testing.T) {
+	h := setup(t, skillRS, false)
+	ctx := context.Background()
+	_, err := h.svc.StartMatchmaking(ctx, appmm.StartMatchmakingCommand{
+		ConfigurationName: "c1", TicketID: "solo", Players: []flexi.Player{{ID: "p1"}},
+	})
+	require.NoError(t, err)
+	h.clock.Advance(59 * time.Second)
+	require.NoError(t, h.svc.StopMatchmaking(ctx, appmm.StopMatchmakingCommand{TicketID: "solo"}))
+	h.clock.Advance(2 * time.Second)
+	require.NoError(t, h.svc.Tick(ctx, "c1"))
+	ticket, err := h.svc.GetTicket("solo")
+	require.NoError(t, err)
+	assert.Equal(t, mm.StatusCancelled, ticket.Status())
+	assert.NotContains(t, h.pub.Names(), "MatchmakingTimedOut")
 }
 
 func TestService_TerminalTicketsAreEvictedAfterRetention(t *testing.T) {

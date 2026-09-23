@@ -98,9 +98,6 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 	}
 	now := s.Clock.Now()
 
-	if err := s.enforceRequestTimeouts(cfg, engine, now, batch); err != nil {
-		return err
-	}
 	before := engine.PendingAcceptances()
 	matches, err := engine.Tick()
 	if err != nil {
@@ -117,38 +114,6 @@ func (s *Service) Tick(ctx context.Context, name mm.ConfigurationName) error {
 		return err
 	}
 	s.evictExpiredTickets(name, engine, now)
-	return nil
-}
-
-func (s *Service) enforceRequestTimeouts(cfg mm.Configuration, engine *flexi.Matchmaker, now time.Time, batch *eventBatch) error {
-	if cfg.RequestTimeout <= 0 {
-		return nil
-	}
-	ids := s.ActiveTicketIDsByConfiguration(cfg.Name)
-	for _, id := range ids {
-		ticket, err := s.GetTicket(id)
-		if err != nil {
-			continue
-		}
-		status := ticket.Status()
-		if status != mm.StatusQueued && status != mm.StatusSearching {
-			continue
-		}
-		if now.Sub(ticket.StartTime()) < cfg.RequestTimeout {
-			continue
-		}
-		captureRuleMetrics(engine, ticket)
-		if err := engine.Cancel(string(ticket.ID())); err != nil && !errors.Is(err, flexi.ErrUnknownTicket) {
-			return fmt.Errorf("engine cancel (request timeout): %w", err)
-		}
-		if err := ticket.MarkTimedOut("TimedOut", "Matchmaking request timed out", now); err != nil {
-			return err
-		}
-		if err := s.SaveTicket(ticket); err != nil {
-			return err
-		}
-		batch.addTicket(ticket)
-	}
 	return nil
 }
 
