@@ -3,12 +3,12 @@ module github.com/moepig/fmlocal
 go 1.27.3
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.47.5
+	github.com/aws/aws-sdk-go-v2 v1.47.6
 	github.com/aws/aws-sdk-go-v2/config v1.33.13
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.13
 	github.com/aws/aws-sdk-go-v2/service/gamelift v1.68.3
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.8
-	github.com/aws/smithy-go v1.28.7
+	github.com/aws/smithy-go v1.28.8
 	github.com/google/uuid v1.6.0
 	github.com/moepig/flexi v0.4.0
 	github.com/stretchr/testify v1.12.1
