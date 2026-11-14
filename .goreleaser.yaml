@@ -22,37 +22,14 @@ builds:
 
 archives:
   - id: fmlocal
-    formats: [tar.gz]
+    formats: [ tar.gz ]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: checksums.txt
 
 changelog:
-  use: github
-  sort: asc
-  groups:
-    - title: Features
-      regexp: '^.*?feat(\(.+\))??!?:.+$'
-      order: 0
-    - title: Bug fixes
-      regexp: '^.*?fix(\(.+\))??!?:.+$'
-      order: 1
-    - title: Dependencies
-      regexp: '^.*?(chore|build)\(deps\)?:.+$'
-      order: 2
-    - title: Others
-      order: 999
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
-      - "^style:"
-      - "^refactor:"
-      - "merge conflict"
-      - Merge pull request
-      - Merge branch
+  disable: true
 
 dockers_v2:
   - id: fmlocal
@@ -61,7 +38,6 @@ dockers_v2:
       - ghcr.io/moepig/fmlocal
     tags:
       - "{{ .Version }}"
-      - latest
     platforms:
       - linux/amd64
       - linux/arm64
@@ -73,3 +49,7 @@ dockers_v2:
 
 release:
   prerelease: auto
+  draft: true
+  use_existing_draft: true
+  replace_existing_artifacts: true
+  mode: keep-existing
