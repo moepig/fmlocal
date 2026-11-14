@@ -1,17 +1,17 @@
 # Release process
 
-Release Please creates one release PR for the repository. Review its version and changelog, approve the CI run when GitHub requests approval, and merge the PR manually. Authentication uses only GITHUB_TOKEN.
+Release Please creates a release PR with the product version and changelog. A maintainer approves its CI run when GitHub requests approval, reviews compatibility, and merges it manually. The workflows use only GITHUB_TOKEN.
 
 ## Publication
 
-Release control runs on main pushes, a half-hourly schedule, and manual dispatch. It calls the distribution workflow with the release PR merge SHA, tag, and existing draft release ID. GoReleaser builds Linux and macOS archives for amd64 and arm64 and attaches them with SHA-256 checksums. It preserves the Release Please notes and leaves the release in draft.
+The Release Please action runs on main pushes, a half-hourly schedule, or manual dispatch. For a merged release PR, it creates the version tag and a draft release, then passes its tag and SHA directly to distribute.yml. The distribution job checks that the checkout matches the tag and that the release is still a draft.
 
-The container workflow stages ghcr.io/moepig/fmlocal with the bare version tag. It verifies linux/amd64 and linux/arm64 and the source commit before advancing latest. Existing versioned images are reused when their version and commit match. A mismatch stops publication. Prereleases do not advance latest.
+GoReleaser builds Linux and macOS archives for amd64 and arm64, attaches SHA-256 checksums, and publishes the versioned multi-platform container with its standard Docker configuration. It keeps the existing draft and Release Please notes. The workflow downloads the uploaded assets to verify their checksums before advancing latest and publishing the GitHub Release. Prereleases do not advance latest.
 
-After every expected archive and checksum has been verified, release control publishes the draft. A failed run resumes the same draft and version. Tags are never moved for recovery.
+## Failure and retry
 
-## Operations
+Rerun the failed job. If the original run is unavailable, run Release Please manually with tag set to the existing draft tag. Verify the tag, commit, and registry state before retrying: a retry may replace the versioned container. Published GitHub Releases are rejected before the build.
 
-See [dependency and release operations](../dependency-release.md) for settings, holds, and recovery. The tools/release.sh helper requests reconciliation of main; versions are selected by Release Please from conventional commits.
+There is no custom action, release state issue, image ownership inspection, or automatic recovery service. Disable the Release Please workflow to pause publication and keep the release PR unmerged.
 
-Configuration is in [Release Please](../../release-please-config.json), the [manifest](../../.release-please-manifest.json), [GoReleaser](../../.goreleaser.yaml), and the [distribution workflow](../../.github/workflows/distribute.yml).
+See [dependency and release operations](../dependency-release.md) for required settings. Configuration is in [Release Please](../../release-please-config.json), the [manifest](../../.release-please-manifest.json), [GoReleaser](../../.goreleaser.yaml), and the [distribution workflow](../../.github/workflows/distribute.yml).
