@@ -1,76 +1,15 @@
 # Release process
 
-fmlocal uses [GoReleaser](https://goreleaser.com/) to build binaries, generate
-release notes, publish GitHub Releases, and push container images to the GitHub
-Container Registry (GHCR). Releases are cut by pushing a `vX.Y.Z` tag.
+Release Please uses the dedicated App to create a release PR. Review its version, changelog, compatibility, and CI before merging. The merge creates a tag and draft release; GoReleaser adds the distribution files and publishes that draft.
 
-## How it works
+## Distribution
 
-### 1. Pushing a tag triggers the release
+The release contains tar.gz archives for Linux and macOS on amd64 and arm64, plus checksums.txt. The ghcr.io/moepig/fmlocal image supports Linux on amd64 and arm64. Image tags contain the version; latest is not updated automatically.
 
-The `Release` workflow (`.github/workflows/release.yaml`) runs on any pushed tag
-matching `v*`. It runs `goreleaser release --clean`, which:
+GoReleaser builds and publishes in one job with the repository GITHUB_TOKEN. The App key remains in the separate Release Please job. PR CI runs unit tests, server E2E tests, and a snapshot release that builds archives and images without publishing them.
 
-1. cross-compiles the `fmlocal` binary for `linux` and `darwin` on `amd64` and
-   `arm64`, embedding the version via `-ldflags "-X main.version=..."`
-2. packages the binaries as `tar.gz` archives plus a `checksums.txt`
-3. generates release notes from the commits since the previous tag
-4. publishes a GitHub Release with the archives and notes
-5. builds a multi-platform image (`linux/amd64`, `linux/arm64`) from
-   `Dockerfile.goreleaser` and pushes it to GHCR
+## Retry and recovery
 
-```
-ghcr.io/<owner>/fmlocal:1.2.3
-ghcr.io/<owner>/fmlocal:latest
-```
+Rerun a failed job only if it failed before writing distribution files or images. After a partial publication, inspect the draft, assets, and GHCR before proceeding. Publish a corrected version instead of overwriting existing assets. Immutable releases protect published GitHub assets and tags; GHCR tags are managed separately.
 
-The image tag and embedded binary version are bare numbers (`1.2.3`); GoReleaser
-strips the `v` prefix automatically via `{{ .Version }}`.
-
-### 2. Changelog grouping
-
-GoReleaser groups the generated notes by commit prefix (see
-`.goreleaser.yaml`):
-
-| Group | Matches |
-|---|---|
-| Features | `feat:` |
-| Bug fixes | `fix:` |
-| Dependencies | `chore(deps):`, `build(deps):` |
-| Others | anything not excluded |
-
-`docs:`, `test:`, `ci:`, `style:`, `refactor:`, and merge commits are excluded.
-The version is chosen by you (via the tag), so dependency-update commits are
-included in the release notes without needing to bump the version themselves.
-
-## Making a release
-
-Use the helper script, which creates and pushes the tag:
-
-```sh
-./tools/release.sh 1.2.3
-```
-
-Or push the tag manually:
-
-```sh
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-GoReleaser does the rest. There is no Release PR to merge and no manifest to
-update — the tag is the single source of truth for the version.
-
-## Versioning scheme
-
-Versions follow [Semantic Versioning](https://semver.org/). Tags are prefixed
-with `v` (`v1.2.3`). Pre-release tags (e.g. `v1.2.3-rc.1`) are published as
-GitHub pre-releases automatically (`release.prerelease: auto`).
-
-## Configuration files
-
-| File | Purpose |
-|---|---|
-| `.goreleaser.yaml` | GoReleaser configuration (builds, archives, changelog, Docker) |
-| `Dockerfile.goreleaser` | minimal image that copies the pre-built binary |
-| `.github/workflows/release.yaml` | runs GoReleaser on pushed `v*` tags |
+Configuration is in [GoReleaser](../../.goreleaser.yaml), [Release Please](../../release-please-config.json), and the [release workflow](../../.github/workflows/release-please.yml). See [dependency and release operations](../dependency-release.md) for prerequisites and stopping the workflows.
