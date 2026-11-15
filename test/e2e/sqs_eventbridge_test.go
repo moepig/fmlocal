@@ -37,7 +37,7 @@ func TestE2E_SQSEventBridge_RealElasticMQ(t *testing.T) {
 	defer cancel()
 
 	req := testcontainers.ContainerRequest{
-		Image:        "softwaremill/elasticmq-native:latest",
+		Image:        "softwaremill/elasticmq-native:latest@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c",
 		ExposedPorts: []string{"9324/tcp"},
 		WaitingFor:   wait.ForListeningPort("9324/tcp").WithStartupTimeout(60 * time.Second),
 	}
