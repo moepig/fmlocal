@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
       - name: Run unit tests
         run: go test -short ./internal/...
   e2e-test:
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
       - name: Run e2e tests
         run: go test ./test/e2e/...
   ci:
@@ -41,6 +41,11 @@ jobs:
       - e2e-test
     if: ${{ always() }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test release validation
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Require every CI job to succeed
         if: ${{ needs['unit-test'].result != 'success' || needs['e2e-test'].result != 'success' }}
         run: exit 1
